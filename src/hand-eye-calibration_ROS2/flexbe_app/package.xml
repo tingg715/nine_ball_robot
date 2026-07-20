@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<?xml-model
+    href="http://download.ros.org/schema/package_format3.xsd"
+    schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>flexbe_app</name>
+    <version>3.1.3</version>
+    <description>
+        flexbe_app provides a user interface (editor + runtime control) for the FlexBE behavior engine.
+    </description>
+    <url>http://ros.org/wiki/flexbe_app</url>
+    <author>Philipp Schillinger</author>
+    <maintainer email="philsplus@gmail.com">Philipp Schillinger</maintainer>
+    <maintainer email="robotics@cnu.edu">David Conner</maintainer>
+
+    <license>BSD</license>
+    <url type="website">http://ros.org/wiki/flexbe_core</url>
+    <url type="bugtracker">https://github.com/FlexBE/flexbe_app/issues</url>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <exec_depend>rclpy</exec_depend>
+    <exec_depend>rclcpp</exec_depend>
+    <exec_depend>rclcpp_action</exec_depend>
+    <exec_depend>std_msgs</exec_depend>
+    <exec_depend>ros2pkg</exec_depend>
+    <exec_depend>flexbe_msgs</exec_depend>
+    <exec_depend>launch_ros</exec_depend>
+
+    <build_depend>curl</build_depend>
+
+    <exec_depend>libnss3-dev</exec_depend>
+    
+    <exec_depend>flexbe_onboard</exec_depend>
+    <exec_depend>flexbe_mirror</exec_depend>
+    <exec_depend>flexbe_widget</exec_depend>
+
+    <test_depend>ament_copyright</test_depend>
+    <test_depend>ament_flake8</test_depend>
+    <test_depend>ament_pep257</test_depend>
+    <test_depend>python3-pytest</test_depend>
+
+    <test_depend>ament_lint_auto</test_depend>
+    <test_depend>ament_lint_common</test_depend>
+
+    <export>
+      <build_type>ament_cmake</build_type>
+    </export>
+</package>

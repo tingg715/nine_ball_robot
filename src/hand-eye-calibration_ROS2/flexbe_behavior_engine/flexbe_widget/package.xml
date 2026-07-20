@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model
+    href="http://download.ros.org/schema/package_format3.xsd"
+    schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>flexbe_widget</name>
+    <version>2.3.5</version>
+    <description>
+        flexbe_widget implements some smaller scripts for the behavior engine.
+    </description>
+    <author>Philipp Schillinger</author>
+    <maintainer email="philsplus@gmail.com">Philipp Schillinger</maintainer>
+    <maintainer email="robotics@cnu.edu">David Conner</maintainer>
+
+    <license>BSD</license>
+    <url type="website">http://ros.org/wiki/flexbe_core</url>
+    <url type="bugtracker">https://github.com/FlexBE/flexbe_behavior_engine/issues</url>
+
+    <depend>rclpy</depend>
+    <depend>flexbe_core</depend>
+    <depend>flexbe_msgs</depend>
+    <depend>flexbe_mirror</depend>
+    <depend>flexbe_onboard</depend>
+    <depend>launch_ros</depend>
+
+    <test_depend>ament_copyright</test_depend>
+    <test_depend>ament_flake8</test_depend>
+    <test_depend>ament_pep257</test_depend>
+    <test_depend>python3-pytest</test_depend>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+    <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>

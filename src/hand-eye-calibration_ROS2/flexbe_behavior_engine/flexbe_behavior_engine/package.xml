@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>flexbe_behavior_engine</name>
+  <version>2.3.5</version>
+  <description>
+    A meta-package to aggregate all the FlexBE packages
+  </description>
+
+  <maintainer email="philsplus@gmail.com">Philipp Schillinger</maintainer>
+  <maintainer email="robotics@cnu.edu">David Conner</maintainer>
+  <license>BSD</license>
+
+  <url>http://ros.org/wiki/flexbe</url>
+  <url type="bugtracker">https://github.com/FlexBE/flexbe_behavior_engine/issues</url>
+
+  <depend>flexbe_core</depend>
+  <depend>flexbe_input</depend>
+  <depend>flexbe_mirror</depend>
+  <depend>flexbe_msgs</depend>
+  <depend>flexbe_onboard</depend>
+  <depend>flexbe_states</depend>
+  <depend>flexbe_testing</depend>
+  <depend>flexbe_widget</depend>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <!-- <metapackage/> -->
+  </export>
+
+</package>

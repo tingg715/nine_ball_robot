@@ -1,0 +1,78 @@
+# ROS2 build files
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# IDE
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+
+# ROS bag
+*.db3
+*.mcap
+
+# Temporary files
+*.tmp
+*.log
+
+# Machine learning model files
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# ROS2 build outputs
+build/
+install/
+log/
+
+# Old and nested Git backups
+src/.git_backup/
+**/.git_backup/
+**/.git_backup_nested/
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Editor
+.vscode/
+.idea/
+
+# Runtime and debug files
+*.log
+*.err
+*.tmp
+
+# ROS graph debug files
+frames_*.gv
+frames_*.pdf
+
+# ROS bags
+*.db3
+*.mcap
+*.bag
+
+# Large model files
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# Binary installer packages
+*.deb

@@ -1,0 +1,16 @@
+#!/bin/bash
+ROOT_PATH="$(ros2 pkg prefix flexbe_app)"/lib/flexbe_app
+NW=$ROOT_PATH/nwjs/nw
+if [ ! -f $NW ]; then
+    ROOT_PATH=.
+    NW=$ROOT_PATH/nwjs/nw
+fi
+if [ ! -x $NW ]; then
+  echo "Cannot run flexbe_app, need to download nwjs first."
+  echo "Please build flexbe_app via colcon before using it or run the following command now:"
+  echo "  ros2 run flexbe_app nwjs_install"
+  exit -1
+fi
+
+echo "Running FlexBE App @ $ROOT_PATH $@ ..."
+"$NW" --password-store=basic $ROOT_PATH "$@"

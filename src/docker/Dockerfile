@@ -133,10 +133,11 @@ RUN sudo apt-get install -y --no-install-recommends \
 
 
 ############################### PtTorch #######################################
-RUN pip3 install --ignore-install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+RUN pip3 install --ignore-installed torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
 RUN ./config/pip/pip_setup.sh
-RUN pip3 install opencv-python
+RUN pip3 install "opencv-python<4.12"
+RUN pip3 install --no-cache-dir ultralytics
 ############################### AZURE KINECT #######################################
 COPY k4a_install /tmp/k4a_install
 

@@ -19,3 +19,8 @@ docker build -t nineball_kinect .
 ./run.sh
 
 export ROS_DOMAIN_ID=1
+
+
+source ./get_param.sh
+docker tag "${DOCKER_HUB_USER}/${IMAGE}:latest" "nineball_kinect:latest"
+

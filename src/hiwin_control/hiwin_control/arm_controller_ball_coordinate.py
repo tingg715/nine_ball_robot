@@ -22,7 +22,7 @@ Behavior:
   6. Stop above the selected ball. No descent and no hit.
 
 Run:
-  ros2 run hiwin_control arm_controller
+  ros2 run hiwin_control arm_controller_ball_coordinate
 """
 
 import json
@@ -58,6 +58,23 @@ DEFAULT_ACCEL = 70
 # Base coordinates and TCP/tool definition have been physically verified.
 TEST_ABOVE_OFFSET_MM = 100.0
 
+# Fixed Base-coordinate compensation. These offsets are applied exactly once,
+# immediately after each /ball_coordinate message has been validated.
+BALL_X_COMPENSATION_MM = 10.0
+BALL_Y_COMPENSATION_MM = 0.0
+BALL_Z_COMPENSATION_MM = 0.0
+
+# Tool Rz is a Cartesian tool orientation.
+# It is not the direct J6 joint angle.
+TOOL_RZ_OFFSET_DEG = -90.0
+
+# TODO: Confirm these two fixed values with the teach pendant before using
+# them. The cue must remain in a safe, reasonable posture. For now, the
+# movement uses Tool 8 Rx/Ry read by CHECK_POSE instead of these placeholders;
+# Rx and Ry are not automatically determined from the shot direction.
+CUE_RX_DEG = None
+CUE_RY_DEG = None
+
 # Safe test movement settings.
 TEST_VELOCITY = 20
 TEST_ACCELERATION = 20
@@ -92,6 +109,10 @@ if len(FIX_ABS_CAM) != 6:
     raise RuntimeError(
         'arm.yaml armpos must be [x, y, z, rx, ry, rz]'
     )
+
+SAFE_TRANSIT_X = FIX_ABS_CAM[0]
+SAFE_TRANSIT_Y = FIX_ABS_CAM[1]
+SAFE_TRANSIT_Z = FIX_ABS_CAM[2] + 100.0
 
 _ARM_POTS = [
     [float(_arm['pot0'][0]), float(_arm['pot0'][1])],
@@ -140,6 +161,14 @@ def arm_mm_to_canvas(arm_x, arm_y):
         * UTH
     )
     return canvas_x, canvas_y
+
+
+def normalize_angle_deg(angle):
+    while angle > 180.0:
+        angle -= 360.0
+    while angle <= -180.0:
+        angle += 360.0
+    return angle
 
 
 # Pocket canvas positions derived from Base coordinates in arm.yaml.
@@ -282,14 +311,14 @@ class Hiwin_Controller(Node):
         self._printed_ball_coordinates = False
 
         self.current_pose = [0.0] * 6
-        self.test_target_xyz = None
+        self.test_target_pose = None
 
         self._shot_event = Event()
         self._reset_event = Event()
         self.photo_pose_ready = Event()
         self.startup_failed = Event()
 
-        # [base_x, base_y, base_z, angle_deg, force]
+        # [target_x, target_y, target_z, white_x, white_y, white_z, force]
         self.ui_shot_info = None
 
         self.get_logger().info('Hiwin Base-coordinate position test ready')
@@ -335,9 +364,9 @@ class Hiwin_Controller(Node):
 
             try:
                 label = str(item['label'])
-                base_x = float(item['x'])
-                base_y = float(item['y'])
-                base_z = float(item['z'])
+                raw_x = float(item['x'])
+                raw_y = float(item['y'])
+                raw_z = float(item['z'])
             except (TypeError, ValueError) as error:
                 self.get_logger().warning(
                     f'Invalid ball item {index}: {error}'
@@ -346,19 +375,35 @@ class Hiwin_Controller(Node):
 
             if not all(
                 math.isfinite(value)
-                for value in (base_x, base_y, base_z)
+                for value in (raw_x, raw_y, raw_z)
             ):
                 self.get_logger().warning(
                     f'Ball item {index} contains a non-finite coordinate.'
                 )
                 continue
 
+            compensated_x = raw_x + BALL_X_COMPENSATION_MM
+            compensated_y = raw_y + BALL_Y_COMPENSATION_MM
+            compensated_z = raw_z + BALL_Z_COMPENSATION_MM
+
             valid_balls.append({
                 'label': label,
-                'x': base_x,
-                'y': base_y,
-                'z': base_z,
+                'x': compensated_x,
+                'y': compensated_y,
+                'z': compensated_z,
+                'raw_x': raw_x,
+                'raw_y': raw_y,
+                'raw_z': raw_z,
             })
+
+            self.get_logger().info(
+                f'Ball {index + 1}:\n'
+                f'raw Base=({raw_x:.2f}, {raw_y:.2f}, {raw_z:.2f}) mm\n'
+                f'compensated Base=('
+                f'{compensated_x:.2f}, '
+                f'{compensated_y:.2f}, '
+                f'{compensated_z:.2f}) mm'
+            )
 
         if not valid_balls:
             return
@@ -383,26 +428,33 @@ class Hiwin_Controller(Node):
 
     def set_shot_from_ui(
         self,
-        arm_x_mm,
-        arm_y_mm,
-        arm_z_mm,
-        angle_deg,
+        target_x,
+        target_y,
+        target_z,
+        white_x,
+        white_y,
+        white_z,
         force,
     ):
         with self._lock:
             self.ui_shot_info = [
-                float(arm_x_mm),
-                float(arm_y_mm),
-                float(arm_z_mm),
-                float(angle_deg),
+                float(target_x),
+                float(target_y),
+                float(target_z),
+                float(white_x),
+                float(white_y),
+                float(white_z),
                 int(force),
             ]
 
         self._shot_event.set()
         self.get_logger().info(
             'Shot from UI: '
-            f'base=({arm_x_mm:.2f}, {arm_y_mm:.2f}, {arm_z_mm:.2f}), '
-            f'angle={angle_deg:.1f} deg, force={force}'
+            f'target Base=({target_x:.2f}, '
+            f'{target_y:.2f}, {target_z:.2f}), '
+            f'white Base=({white_x:.2f}, '
+            f'{white_y:.2f}, {white_z:.2f}), '
+            f'force={force}'
         )
 
     def get_current_pose(self):
@@ -419,30 +471,33 @@ class Hiwin_Controller(Node):
         balls = []
 
         for ball in balls_base:
-            arm_x = float(ball['x'])
-            arm_y = float(ball['y'])
-            arm_z = float(ball['z'])
+            base_x = float(ball['x'])
+            base_y = float(ball['y'])
+            base_z = float(ball['z'])
             canvas_x, canvas_y = arm_mm_to_canvas(
-                arm_x,
-                arm_y,
+                ball['x'],
+                ball['y'],
             )
 
             balls.append({
                 'label': str(ball['label']),
                 'x': canvas_x,
                 'y': canvas_y,
-                'arm_x': arm_x,
-                'arm_y': arm_y,
-                'arm_z': arm_z,
+                'base_x': base_x,
+                'base_y': base_y,
+                'base_z': base_z,
+                'raw_x': float(ball['raw_x']),
+                'raw_y': float(ball['raw_y']),
+                'raw_z': float(ball['raw_z']),
             })
 
         if balls and not self._printed_ball_coordinates:
             for ball in balls:
                 self.get_logger().info(
                     f'Ball {ball["label"]}: '
-                    f'Base=({ball["arm_x"]:.2f}, '
-                    f'{ball["arm_y"]:.2f}, '
-                    f'{ball["arm_z"]:.2f}), '
+                    f'Base=({ball["base_x"]:.2f}, '
+                    f'{ball["base_y"]:.2f}, '
+                    f'{ball["base_z"]:.2f}), '
                     f'Canvas=({ball["x"]:.2f}, {ball["y"]:.2f})'
                 )
 
@@ -460,7 +515,7 @@ class Hiwin_Controller(Node):
 
         if state == States.MOVE_TO_PHOTO:
             self._printed_ball_coordinates = False
-            self.test_target_xyz = None
+            self.test_target_pose = None
 
             pose = self._twist(*FIX_ABS_CAM)
             self.get_logger().info(
@@ -527,36 +582,95 @@ class Hiwin_Controller(Node):
                 target_x,
                 target_y,
                 target_z,
-                angle_deg,
+                white_x,
+                white_y,
+                white_z,
                 force,
             ) = shot_info
 
-            self.test_target_xyz = [
-                target_x,
-                target_y,
-                target_z,
-            ]
+            self.test_target_pose = {
+                'target_x': target_x,
+                'target_y': target_y,
+                'target_z': target_z,
+                'white_x': white_x,
+                'white_y': white_y,
+                'white_z': white_z,
+                'force': force,
+            }
 
             self.get_logger().info(
                 'Position test target received: '
-                f'base=({target_x:.2f}, '
+                f'target Base=({target_x:.2f}, '
                 f'{target_y:.2f}, '
-                f'{target_z:.2f})'
+                f'{target_z:.2f}), '
+                f'white Base=({white_x:.2f}, '
+                f'{white_y:.2f}, '
+                f'{white_z:.2f})'
             )
 
             return States.TEST_MOVE_ABOVE
 
         if state == States.TEST_MOVE_ABOVE:
-            if self.test_target_xyz is None:
+            if self.test_target_pose is None:
                 self.get_logger().error(
                     'Missing selected Base coordinate'
                 )
                 return None
 
-            target_x = float(self.test_target_xyz[0])
-            target_y = float(self.test_target_xyz[1])
-            ball_z = float(self.test_target_xyz[2])
-            command_z = ball_z + TEST_ABOVE_OFFSET_MM
+            target_x = float(
+                self.test_target_pose['target_x']
+            )
+            target_y = float(
+                self.test_target_pose['target_y']
+            )
+            target_z = float(
+                self.test_target_pose['target_z']
+            )
+            white_x = float(
+                self.test_target_pose['white_x']
+            )
+            white_y = float(
+                self.test_target_pose['white_y']
+            )
+            white_z = float(
+                self.test_target_pose['white_z']
+            )
+
+            direction_x = target_x - white_x
+            direction_y = target_y - white_y
+            direction_length = math.hypot(
+                direction_x,
+                direction_y,
+            )
+
+            if direction_length < 1.0:
+                self.get_logger().error(
+                    'White ball and target ball are too close '
+                    'to define a direction.'
+                )
+                return None
+
+            unit_x = direction_x / direction_length
+            unit_y = direction_y / direction_length
+            base_yaw_deg = math.degrees(
+                math.atan2(direction_y, direction_x)
+            )
+            target_rz = normalize_angle_deg(
+                base_yaw_deg + TOOL_RZ_OFFSET_DEG
+            )
+
+            self.get_logger().info(
+                '[BASE DIRECTION]\n'
+                f'White Base=('
+                f'{white_x:.2f}, {white_y:.2f}, {white_z:.2f})\n'
+                f'Target Base=('
+                f'{target_x:.2f}, {target_y:.2f}, {target_z:.2f})\n'
+                f'Direction=({direction_x:.4f}, {direction_y:.4f})\n'
+                f'Unit direction=({unit_x:.6f}, {unit_y:.6f})\n'
+                f'Base yaw={base_yaw_deg:.2f}\n'
+                f'Tool Rz offset={TOOL_RZ_OFFSET_DEG:.2f}\n'
+                f'Command Rz={target_rz:.2f}'
+            )
 
             response = self._call(
                 self._req(
@@ -573,29 +687,94 @@ class Hiwin_Controller(Node):
 
             current_tool_pose = list(response.current_position)
 
-            pose = self._twist(
-                target_x,
-                target_y,
-                command_z,
-                current_tool_pose[3],
-                current_tool_pose[4],
-                current_tool_pose[5],
+            # Rx/Ry must be confirmed using the teach pendant so the cue stays
+            # in a safe, reasonable posture. They are not derived from the
+            # white-to-target direction vector.
+            target_rx = current_tool_pose[3]
+            target_ry = current_tool_pose[4]
+
+            transit_pose = self._twist(
+                SAFE_TRANSIT_X,
+                SAFE_TRANSIT_Y,
+                SAFE_TRANSIT_Z,
+                target_rx,
+                target_ry,
+                target_rz,
             )
 
             self.get_logger().info(
-                '[TEST_MOVE_ABOVE command]\n'
+                '[SAFE TRANSIT]\n'
                 f'Tool={CUE_TOOL} Base=0\n'
-                f'Received ball Base:\n'
-                f'X={target_x:.2f}\n'
-                f'Y={target_y:.2f}\n'
-                f'Z={ball_z:.2f}\n'
-                f'Command target:\n'
-                f'X={target_x:.2f}\n'
-                f'Y={target_y:.2f}\n'
+                f'X={SAFE_TRANSIT_X:.2f}\n'
+                f'Y={SAFE_TRANSIT_Y:.2f}\n'
+                f'Z={SAFE_TRANSIT_Z:.2f}\n'
+                f'Rx={target_rx:.2f}\n'
+                f'Ry={target_ry:.2f}\n'
+                f'Rz={target_rz:.2f}\n'
+                f'Velocity=10\n'
+                f'Acceleration=10'
+            )
+
+            response = self._call(
+                self._req(
+                    cmd_mode=RobotCommand.Request.PTP,
+                    tool=CUE_TOOL,
+                    base=0,
+                    pose=transit_pose,
+                    velocity=10,
+                    acceleration=10,
+                )
+            )
+
+            if (
+                response is None
+                or response.arm_state != RobotCommand.Response.IDLE
+            ):
+                self.get_logger().error(
+                    'Safe transit move failed'
+                )
+                return None
+
+            transit_pose_response = self._call(
+                self._req(
+                    cmd_mode=RobotCommand.Request.CHECK_POSE,
+                    tool=CUE_TOOL,
+                )
+            )
+
+            if transit_pose_response is None:
+                self.get_logger().error(
+                    'Cannot read cue-tool pose after safe transit'
+                )
+                return None
+
+            transit_tool_pose = list(
+                transit_pose_response.current_position
+            )
+
+            command_x = target_x
+            command_y = target_y
+            command_z = target_z + TEST_ABOVE_OFFSET_MM
+
+            target_pose = self._twist(
+                command_x,
+                command_y,
+                command_z,
+                transit_tool_pose[3],
+                transit_tool_pose[4],
+                transit_tool_pose[5],
+            )
+
+            self.get_logger().info(
+                '[MOVE ABOVE BALL]\n'
+                f'Tool={CUE_TOOL} Base=0\n'
+                f'X={command_x:.2f}\n'
+                f'Y={command_y:.2f}\n'
                 f'Z={command_z:.2f}\n'
-                f'Rx={current_tool_pose[3]:.2f}\n'
-                f'Ry={current_tool_pose[4]:.2f}\n'
-                f'Rz={current_tool_pose[5]:.2f}\n'
+                f'Rx={transit_tool_pose[3]:.2f}\n'
+                f'Ry={transit_tool_pose[4]:.2f}\n'
+                f'Rz={transit_tool_pose[5]:.2f}\n'
+                f'Ball Base Z={target_z:.2f}\n'
                 f'Z offset={TEST_ABOVE_OFFSET_MM:.2f}\n'
                 f'Velocity={TEST_VELOCITY}\n'
                 f'Acceleration={TEST_ACCELERATION}'
@@ -606,7 +785,7 @@ class Hiwin_Controller(Node):
                     cmd_mode=RobotCommand.Request.PTP,
                     tool=CUE_TOOL,
                     base=0,
-                    pose=pose,
+                    pose=target_pose,
                     velocity=TEST_VELOCITY,
                     acceleration=TEST_ACCELERATION,
                 )
@@ -621,7 +800,7 @@ class Hiwin_Controller(Node):
             result_pose = list(response.current_position)
 
             self.get_logger().info(
-                '[TEST_MOVE_ABOVE result]\n'
+                '[FINAL TOOL POSE]\n'
                 f'X={result_pose[0]:.2f}\n'
                 f'Y={result_pose[1]:.2f}\n'
                 f'Z={result_pose[2]:.2f}\n'
@@ -1073,25 +1252,48 @@ class BilliardsUI:
             )
             return
 
-        arm_x = float(self.target_ball['arm_x'])
-        arm_y = float(self.target_ball['arm_y'])
-        arm_z = float(self.target_ball['arm_z'])
-        command_z = arm_z + TEST_ABOVE_OFFSET_MM
+        if (
+            self.white_ball is None
+            or any(
+                key not in self.white_ball
+                for key in ('base_x', 'base_y', 'base_z')
+            )
+        ):
+            messagebox.showerror(
+                'White ball missing',
+                'No white ball Base coordinate is available.'
+            )
+            return
+
+        selected_ball = self.target_ball
+        target_x = float(selected_ball['base_x'])
+        target_y = float(selected_ball['base_y'])
+        target_z = float(selected_ball['base_z'])
+        white_x = float(self.white_ball['base_x'])
+        white_y = float(self.white_ball['base_y'])
+        white_z = float(self.white_ball['base_z'])
+        command_z = target_z + TEST_ABOVE_OFFSET_MM
 
         self.node.get_logger().info(
             '[UI selected]\n'
-            f'Ball={self.target_ball["label"]}\n'
-            f'Received Base=({arm_x:.2f}, {arm_y:.2f}, {arm_z:.2f})\n'
-            f'Arm command=({arm_x:.2f}, {arm_y:.2f}, {command_z:.2f})\n'
+            f'Ball={selected_ball["label"]}\n'
+            f'Received Base=('
+            f'{target_x:.2f}, {target_y:.2f}, {target_z:.2f})\n'
+            f'White Base=('
+            f'{white_x:.2f}, {white_y:.2f}, {white_z:.2f})\n'
+            f'Arm command=('
+            f'{target_x:.2f}, {target_y:.2f}, {command_z:.2f})\n'
             f'Z offset={TEST_ABOVE_OFFSET_MM:.2f}\n'
             f'Tool={CUE_TOOL}'
         )
 
         self.node.set_shot_from_ui(
-            arm_x,
-            arm_y,
-            arm_z,
-            self.best_angle,
+            target_x,
+            target_y,
+            target_z,
+            white_x,
+            white_y,
+            white_z,
             self.v_force.get(),
         )
 
@@ -1103,8 +1305,8 @@ class BilliardsUI:
         )
         self.btn_send['state'] = 'disabled'
         self.status['text'] = (
-            f'Ball {self.target_ball["label"]}: '
-            f'Base=({arm_x:.1f}, {arm_y:.1f}, {arm_z:.1f}), '
+            f'Ball {selected_ball["label"]}: '
+            f'Base=({target_x:.1f}, {target_y:.1f}, {target_z:.1f}), '
             f'command Z={command_z:.1f}'
         )
 

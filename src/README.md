@@ -60,6 +60,12 @@ python3 src/Hiwin_libmodbus/hiwin_example/hiwin_example/strategy_example.py
 
 ```bash
 
+# In the supplied Docker image this repository expects /home/ting/work to be
+# the workspace root (and /home/ting/work/src to contain these packages).
+cd /home/ting/work
+colcon build --packages-select hiwin_interfaces hiwin_libmodbus hiwin_control
+source install/setup.bash
+
 # Stream video for YOLO detection
 ros2 run hiwin_control stream_rs
 # Or
@@ -68,13 +74,44 @@ ros2 launch realsense2_camera rs_launch.py rgb_camera.color_profile:=1920x1080x3
 # Launch YOLOv7 object detection
 ros2 launch yolov7_obj_detect object_detection_launch.py 
 
-# Publish YOLOv7 detected bounding boxes
+# Publish split label/coordinate topics only for the optional legacy
+# second-calibration mode. Fixed-photo mode reads /detect/objs directly so
+# labels and coordinates always come from the same detector frame.
 ros2 run center publisher_dection_boxes
 
 # Connect to Hiwin Robot
 ros2 run hiwin_libmodbus hiwinlibmodbus_server
 
-# Run Nine ball strategy/controller
-ros2 run hiwin_control arm_controller
-```
+# Safe default: fixed-photo direct localization, then stop at the high
+# hitpoint. It does not move the camera above either ball, lower the cue, or
+# enable strike outputs.
+ros2 run hiwin_control arm_controller_how
 
+# Equivalent explicit dry-run command.
+ros2 run hiwin_control arm_controller_how --ros-args \
+  -p overview_dry_run:=true -p cue_tool:=12
+
+# Only after the safe-height dry-run is correct: descend to the high
+# hitpoint for a second dry-run, still without strike power.
+ros2 run hiwin_control arm_controller_how --ros-args \
+  -p overview_dry_run:=true -p overview_dry_run_lower:=true \
+  -p cue_tool:=12
+
+# Enable a real strike only after the dry-run position and Tool 12 TCP have
+# been verified on the robot. Keep the camera stream at the calibrated
+# 1920x1080 resolution.
+ros2 run hiwin_control arm_controller_how --ros-args \
+  -p overview_dry_run:=false -p cue_tool:=12
+
+# The original controller remains available as a backup.
+ros2 run hiwin_control arm_controller
+
+# If arm_controller_how ended abnormally and issued its latched emergency
+# stop, restart hiwinlibmodbus_server before switching to this legacy backup.
+# A normal dry-run does not latch the stop. Stopping the live loop with Ctrl+C
+# intentionally does, even if its preceding shot completed normally.
+
+# Optional: run arm_controller_how with its original second-calibration path.
+ros2 run hiwin_control arm_controller_how --ros-args \
+  -p overview_direct_hit:=false
+```

@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'arm_controller = hiwin_control.arm_controller:main',
+            'arm_controller_how = hiwin_control.arm_controller_how:main',
             'arm_controller_v2 = hiwin_control.arm_controller_v2:main',
             'team_selection = hiwin_control.team_selection:main',
             'testbeat_arm_controller = hiwin_control.testbeat_arm_controller:main',
@@ -35,6 +36,7 @@ setup(
             'test_camera_mm = hiwin_control.test_camera_mm:main',
             'ball_coordinate_checker = hiwin_control.ball_coordinate_checker:main',
             'ball_position_test = hiwin_control.ball_position_test:main',
+            'arm_controller_ball_coordinate = hiwin_control.arm_controller_ball_coordinate:main',
 
         ],
     },

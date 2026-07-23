@@ -59,8 +59,11 @@ int HiwinLibmodbus::libModbus_Connect(const char *ip_address){
 }
 
 void HiwinLibmodbus::Modbus_Close(){ 
-  modbus_free(ctx_);
-  modbus_close(ctx_);
+  if (ctx_ != nullptr) {
+    modbus_close(ctx_);
+    modbus_free(ctx_);
+    ctx_ = nullptr;
+  }
 }
 
 
@@ -112,11 +115,30 @@ void HiwinLibmodbus::Read_DI(int addr, int &state){
   value:300 ~ 555 -> DO[1] ~ [256]
     0 or 65280  -> R/W 
   **********************************/
-void HiwinLibmodbus::DO(int DO_Num, int active){
-  wrt_ = modbus_write_bit(ctx_, DO_Num, active);
+bool HiwinLibmodbus::DO(int DO_Num, int active){
+  const int write_bit_result = modbus_write_bit(ctx_, DO_Num, active);
+  if (write_bit_result != 1) {
+    fprintf(stderr, "Failed to write DO %d: %s\n", DO_Num,
+            modbus_strerror(errno));
+    return false;
+  }
   // TODO: the arguments should be defined, 
   // number can't be directly written here, people will confused what it is.
-  wrt_ = modbus_write_register(ctx_, 200, 1);
+  const int trigger_result = modbus_write_register(ctx_, 200, 1);
+  if (trigger_result != 1) {
+    fprintf(stderr, "Failed to trigger DO %d: %s\n", DO_Num,
+            modbus_strerror(errno));
+    return false;
+  }
+
+  uint8_t readback = 0;
+  const int read_result = modbus_read_bits(ctx_, DO_Num, 1, &readback);
+  if (read_result != 1 || readback != static_cast<uint8_t>(active != 0)) {
+    fprintf(stderr, "DO %d readback mismatch (requested=%d, read=%d)\n",
+            DO_Num, active != 0, static_cast<int>(readback));
+    return false;
+  }
+  return true;
 }
 
 /*************  Holding Register  *************/
@@ -265,11 +287,14 @@ void HiwinLibmodbus::getArmPose(std::vector<double> &Pose){
 
 }
 
-void HiwinLibmodbus::PTP(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL){
+bool HiwinLibmodbus::PTP(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL){
+  if (GOAL.size() < 6) {
+    return false;
+  }
   const double* goal = &GOAL[0];
   return PTP(type, vel, acc, TOOL, BASE, goal);
 }
-void HiwinLibmodbus::PTP(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL){
+bool HiwinLibmodbus::PTP(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL){
   // double Angle[6] = {joint1, joint2, joint3, joint4, joint5, joint6};
   // TODO: the arguments should be defined, 
   // number can't be directly written here, people will confused what it is.
@@ -308,15 +333,30 @@ void HiwinLibmodbus::PTP(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOO
   //                       vel, acc, TOOL, BASE, 0, 0, 0, 0, 0, 0, 0, 0};
   /*********************** test ***********************/
 
-  wrt_ = modbus_write_registers(ctx_, REGISTERS_ADDRESS, 26, table);
-  wrt_ = modbus_write_register(ctx_, 200, 1);
+  const int command_result = modbus_write_registers(
+      ctx_, REGISTERS_ADDRESS, 26, table);
+  if (command_result != 26) {
+    fprintf(stderr, "Failed to write PTP command: %s\n",
+            modbus_strerror(errno));
+    return false;
+  }
+  const int trigger_result = modbus_write_register(ctx_, 200, 1);
+  if (trigger_result != 1) {
+    fprintf(stderr, "Failed to trigger PTP command: %s\n",
+            modbus_strerror(errno));
+    return false;
+  }
+  return true;
 }
 
-void HiwinLibmodbus::LIN(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL){
+bool HiwinLibmodbus::LIN(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL){
+  if (GOAL.size() < 6) {
+    return false;
+  }
   const double* goal = &GOAL[0];
   return LIN(type, vel, acc, TOOL, BASE, goal);
 }
-void HiwinLibmodbus::LIN(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL){
+bool HiwinLibmodbus::LIN(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL){
   // double Angle[6] = {x, y, z, a, b, c};
   // TODO: the arguments should be defined, 
   // number can't be directly written here, people will confused what it is.
@@ -355,8 +395,20 @@ void HiwinLibmodbus::LIN(uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOO
   //                       vel, acc, TOOL, BASE, 0, 0, 0, 0, 0, 0, 0, 0};
   /*********************** test ***********************/
 
-  wrt_ = modbus_write_registers(ctx_, REGISTERS_ADDRESS, 26, table);
-  wrt_ = modbus_write_register(ctx_, 200, 1);
+  const int command_result = modbus_write_registers(
+      ctx_, REGISTERS_ADDRESS, 26, table);
+  if (command_result != 26) {
+    fprintf(stderr, "Failed to write LIN command: %s\n",
+            modbus_strerror(errno));
+    return false;
+  }
+  const int trigger_result = modbus_write_register(ctx_, 200, 1);
+  if (trigger_result != 1) {
+    fprintf(stderr, "Failed to trigger LIN command: %s\n",
+            modbus_strerror(errno));
+    return false;
+  }
+  return true;
 }
 
 
@@ -543,7 +595,7 @@ void HiwinLibmodbus::SET_TOOL(uint16_t tool_num, const double *POSE){
   wrt_ = modbus_write_register(ctx_, 200, 1);
 }
 
-void HiwinLibmodbus::Motion_Stop(){
+bool HiwinLibmodbus::Motion_Stop(){
   // double Angle[6] = {joint1, joint2, joint3, joint4, joint5, joint6};
   // TODO: the arguments should be defined, 
   // number can't be directly written here, people will confused what it is.
@@ -555,7 +607,14 @@ void HiwinLibmodbus::Motion_Stop(){
   //                       vel, acc, TOOL, BASE, 0, 0, 0, 0, 0, 0, 0, 0};
   /*********************** test ***********************/
 
-  wrt_ = modbus_write_registers(ctx_, REGISTERS_ADDRESS, 1, table);
-  wrt_ = modbus_write_register(ctx_, 200, 1);
+  const int command_result = modbus_write_registers(
+      ctx_, REGISTERS_ADDRESS, 1, table);
+  const int trigger_result = modbus_write_register(ctx_, 200, 1);
+  if (command_result != 1 || trigger_result != 1) {
+    fprintf(stderr, "Failed to send motion stop: %s\n",
+            modbus_strerror(errno));
+    return false;
+  }
+  return true;
 }
 // }  // namespace hiwin_libmodbus

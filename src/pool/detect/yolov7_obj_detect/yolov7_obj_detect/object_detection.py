@@ -87,7 +87,7 @@ class ObjectDetection(Node):
         # Subscriber: Azure Kinect RGB image
         self.rs_sub = self.create_subscription(
             Image,
-            "/rgb/image_raw",
+            "/camera_calib",
             self.rs_callback,
             1
         )
@@ -100,7 +100,7 @@ class ObjectDetection(Node):
         )
 
         self.get_logger().info("ObjectDetection node started.")
-        self.get_logger().info("Subscribing to /rgb/image_raw")
+        self.get_logger().info("Subscribing to /camera_calib")
         self.get_logger().info("Publishing to /detect/objs")
 
     def rs_callback(self, msg):

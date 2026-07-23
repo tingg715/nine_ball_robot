@@ -57,7 +57,7 @@ public:
   HIWIN_LIBMODBUS_PUBLIC_TYPE
   void Read_DI(int addr, int &state);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void DO(int DO_Num, int active);
+  bool DO(int DO_Num, int active);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
   void HOME();
   HIWIN_LIBMODBUS_PUBLIC_TYPE
@@ -65,16 +65,16 @@ public:
   HIWIN_LIBMODBUS_PUBLIC_TYPE
   void getArmPose(std::vector<double> &Pose);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void PTP(
+  bool PTP(
     uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void PTP(
+  bool PTP(
     uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void LIN(
+  bool LIN(
     uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const std::vector<double> GOAL);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void LIN(
+  bool LIN(
     uint16_t type, uint16_t vel, uint16_t acc, uint16_t TOOL, uint16_t BASE, const double *GOAL);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
   void CIRC(
@@ -93,7 +93,7 @@ public:
   HIWIN_LIBMODBUS_PUBLIC_TYPE
   void SET_TOOL(uint16_t tool_num, const double *POSE);
   HIWIN_LIBMODBUS_PUBLIC_TYPE
-  void Motion_Stop();
+  bool Motion_Stop();
   
 
   int qqq{0};

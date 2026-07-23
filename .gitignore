@@ -76,3 +76,5 @@ frames_*.pdf
 
 # Binary installer packages
 *.deb
+src/docker/build.sh
+src/docker/get_param.sh

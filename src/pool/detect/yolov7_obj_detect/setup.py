@@ -14,7 +14,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share',package_name,'launch'), glob(os.path.join('launch','*launch.[pxy][yma]'))),
-        (os.path.join('share',package_name,'weights'), glob(os.path.join('weights/*.pt'))),
+        (os.path.join('share', package_name, 'weights'), glob('weights/*.pt')),
         ('lib/' + package_name + '/models/',['models/experimental.py', 'models/common.py',
                                              'models/yolo.py']),
         ('lib/' + package_name + '/utils/',['utils/general.py', 'utils/torch_utils.py',

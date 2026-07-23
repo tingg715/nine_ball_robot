@@ -45,7 +45,7 @@ function set_image_name() {
 
     # If the workspace folder has no prefix/suffix, set the image name to `unknown`
     # and the workspace path to the current directory
-    IMAGE="${IMAGE:-unknown}"
+    IMAGE="${IMAGE:-nineball_kinect}"
 
     # echo the values of IMAGE
     echo "${IMAGE}"
@@ -76,7 +76,6 @@ function get_workdir() {
         }')
 
     if [[ -n "${WS_NAME}" ]]; then
-        # Extract the path of the workspace folder and store it in the `WS_PATH` variable
         WS_PATH=$(echo "${1}" | awk -v ws="${WS_NAME}" -v found=0 -F/ '{
                 for (i=1; i<=NF; i++) {
                     if ($i ~ /_ws$/){
@@ -88,11 +87,9 @@ function get_workdir() {
                 if (found) printf "%s", ws
             }')
     else
-        # If no workspace folder is found based on the provided prefix, extract the path to the parent directory
-        WS_PATH="$(echo "${1}" | rev | cut -d '/' -f 2- | rev)"
+        WS_PATH="$(realpath "${1}/../..")"
     fi
 
-    # echo the values of WS_PATH
     echo "${WS_PATH}"
 }
 

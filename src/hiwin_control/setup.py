@@ -35,6 +35,7 @@ setup(
             'test_camera_mm = hiwin_control.test_camera_mm:main',
             'ball_coordinate_checker = hiwin_control.ball_coordinate_checker:main',
             'ball_position_test = hiwin_control.ball_position_test:main',
+            'move_to_armpos = hiwin_control.move_to_armpos:main',
 
         ],
     },

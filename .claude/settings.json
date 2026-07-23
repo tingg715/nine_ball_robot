@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import cv2; print\\(cv2.__version__\\)\")",
+      "Read(//home/**)",
+      "Read(//home/ting/work/src/hiwin_control/hiwin_control/**)",
+      "Bash(docker exec *)",
+      "Bash(docker exec nineball_kinect bash -c ' *)",
+      "Bash(python3 -m py_compile src/hiwin_control/hiwin_control/move_to_armpos.py)",
+      "Bash(python3 -m py_compile src/hiwin_control/setup.py)",
+      "Bash(ros2 pkg *)",
+      "Bash(find / -name \"rectify_node*\")"
+    ]
+  }
+}

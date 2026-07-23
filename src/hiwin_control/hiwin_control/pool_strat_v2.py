@@ -6,29 +6,26 @@ from shapely.geometry import Polygon, Point, LineString
 import random
 import numpy as np
 import math
+import os
 import time
 import yaml
 
 # define table height width
 # tablewidth = 1920
 # tableheight = 932
-tablewidth = 627
-tableheight = 304
+tablewidth = 1134.0
+tableheight = 572.0
 
 # actual table height and width
-actualwidth = 627
-actualheight = 304
+actualwidth = 1134.0
+actualheight = 572.0
 
-# radius of balls (30.4cm: 1.6cm = 932pixels : 97.5pixels)
-# R = 1.6/actualheight*tableheight
-# r = round(R) #97
-r = 16
-R = 16
+# radius of balls (ball diameter 3.8cm)
+r = 19
+R = 19
 
-#radius of holes (62.6cm : 1920pixels = 2cm : 60pixels)
-# RB = tablewidth/actualwidth*2
-# rb = round(RB)
-rb = 20
+#radius of holes (measured hole mouth width ~60mm / 2)
+rb = 30
 
 # TOP_LEFT = [-296.364, 592.533]
 
@@ -47,7 +44,8 @@ rb = 20
 '''
 Base on robot arm coordinate
 '''
-config_file = '/home/ting/work/src/hiwin_control/hiwin_control/arm.yaml'
+current_dir = os.getcwd()
+config_file = current_dir + '/src/hiwin_control/hiwin_control/arm.yaml'
 with open(config_file, 'r') as file:
     data = yaml.safe_load(file)
 

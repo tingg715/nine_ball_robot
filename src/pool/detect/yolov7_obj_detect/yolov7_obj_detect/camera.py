@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 
-import os
-import configparser
+"""
+Camera calibration node (undistortion)
+
+內參與畸變係數以 ROS 2 parameter 提供,預設值為 Azure Kinect
+color_resolution = 1080P (1920x1080) 的實測校正結果。
+
+若更改 driver.launch.py 的 color_resolution,
+必須重新校正並覆蓋以下參數,否則座標換算會產生系統性偏差。
+
+本節點不開啟任何顯示視窗,僅訂閱影像、去畸變後重新發布。
+如需檢視結果請使用 rqt_image_view 或 rviz2 訂閱 output_topic。
+"""
 
 import cv2
 import numpy as np
@@ -10,7 +20,32 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from ament_index_python.packages import get_package_share_directory
+
+
+# ======================================================
+# Default intrinsics
+# Azure Kinect RGB camera @ 1080P (1920x1080)
+# ======================================================
+
+# 3x3 內參矩陣,以 row-major 展平成 9 個元素
+# [fx,  0, cx,
+#   0, fy, cy,
+#   0,  0,  1]
+DEFAULT_CAMERA_MATRIX = [
+    923.2900734226928, 0.0,               956.336780370788,
+    0.0,               922.8913296403708, 547.7923321648962,
+    0.0,               0.0,               1.0,
+]
+
+# OpenCV 畸變係數順序: [k1, k2, p1, p2, k3]
+# (原 camera_calibration.ini 中的 t1、t2 即 OpenCV 的 p1、p2)
+DEFAULT_DISTORTION_COEFFICIENTS = [
+    0.0941993074255769,
+    -0.07417523933713971,
+    0.000282306705644396,
+    -0.0012181647924617714,
+    0.0339138272188274,
+]
 
 
 class CameraCalibNode(Node):
@@ -32,19 +67,16 @@ class CameraCalibNode(Node):
             '/camera_calib'
         )
 
+        # 3x3 內參矩陣,row-major 展平的 9 個 double
         self.declare_parameter(
-            'calibration_file',
-            ''
+            'camera_matrix',
+            DEFAULT_CAMERA_MATRIX
         )
 
+        # 畸變係數 [k1, k2, p1, p2, k3]
         self.declare_parameter(
-            'show_raw_image',
-            True
-        )
-
-        self.declare_parameter(
-            'show_calibrated_image',
-            True
+            'distortion_coefficients',
+            DEFAULT_DISTORTION_COEFFICIENTS
         )
 
         # alpha:
@@ -70,35 +102,10 @@ class CameraCalibNode(Node):
             .string_value
         )
 
-        calibration_file_parameter = (
-            self.get_parameter('calibration_file')
-            .get_parameter_value()
-            .string_value
-        )
-
-        self.show_raw_image = (
-            self.get_parameter('show_raw_image')
-            .get_parameter_value()
-            .bool_value
-        )
-
-        self.show_calibrated_image = (
-            self.get_parameter('show_calibrated_image')
-            .get_parameter_value()
-            .bool_value
-        )
-
         self.alpha = (
             self.get_parameter('alpha')
             .get_parameter_value()
             .double_value
-        )
-
-        # ==================================================
-        # Find camera calibration file
-        # ==================================================
-        self.calibration_file = self.find_calibration_file(
-            calibration_file_parameter
         )
 
         # ==================================================
@@ -107,9 +114,7 @@ class CameraCalibNode(Node):
         (
             self.camera_matrix,
             self.distortion_coefficients
-        ) = self.load_calibration_file(
-            self.calibration_file
-        )
+        ) = self.load_calibration_parameters()
 
         # ==================================================
         # CvBridge
@@ -162,10 +167,6 @@ class CameraCalibNode(Node):
         )
 
         self.get_logger().info(
-            f'Calibration file: {self.calibration_file}'
-        )
-
-        self.get_logger().info(
             f'Camera matrix:\n{self.camera_matrix}'
         )
 
@@ -176,198 +177,53 @@ class CameraCalibNode(Node):
         )
 
         self.get_logger().info(
-            'Press Q or ESC in the OpenCV window to close the display.'
+            f'Alpha: {self.alpha}'
         )
 
-    def find_calibration_file(self, parameter_path):
+    def load_calibration_parameters(self):
         """
-        搜尋 camera_calibration.ini。
+        從 ROS 2 parameter 讀取內參與畸變係數。
 
-        搜尋順序：
-        1. ROS 參數指定的完整路徑
-        2. camera.py 同一個資料夾
-        3. 套件 share/config 目錄
-        4. 套件 share 目錄
-        5. 執行指令時所在的目錄
-        """
+        camera_matrix:
+            9 個 double,row-major 展平的 3x3 矩陣
 
-        candidate_paths = []
-
-        # 1. ROS parameter 指定路徑
-        if parameter_path:
-            candidate_paths.append(
-                os.path.abspath(
-                    os.path.expanduser(parameter_path)
-                )
-            )
-
-        # 2. camera.py 同一個資料夾
-        script_directory = os.path.dirname(
-            os.path.abspath(__file__)
-        )
-
-        candidate_paths.append(
-            os.path.join(
-                script_directory,
-                'camera_calibration.ini'
-            )
-        )
-
-        # 3、4. ROS 2 package share directory
-        try:
-            package_share_directory = (
-                get_package_share_directory(
-                    'yolov7_obj_detect'
-                )
-            )
-
-            candidate_paths.append(
-                os.path.join(
-                    package_share_directory,
-                    'config',
-                    'camera_calibration.ini'
-                )
-            )
-
-            candidate_paths.append(
-                os.path.join(
-                    package_share_directory,
-                    'camera_calibration.ini'
-                )
-            )
-
-        except Exception as exception:
-            self.get_logger().warning(
-                'Could not get package share directory: '
-                f'{exception}'
-            )
-
-        # 5. Current working directory
-        candidate_paths.append(
-            os.path.join(
-                os.getcwd(),
-                'camera_calibration.ini'
-            )
-        )
-
-        for path in candidate_paths:
-            if os.path.isfile(path):
-                return path
-
-        searched_paths = '\n'.join(candidate_paths)
-
-        raise FileNotFoundError(
-            'Cannot find camera_calibration.ini.\n'
-            f'Searched paths:\n{searched_paths}'
-        )
-
-    def load_calibration_file(self, calibration_file):
-        """
-        讀取 camera_calibration.ini。
-
-        支援格式：
-
-        [Distortion]
-        k1 = ...
-        k2 = ...
-        t1 = ...
-        t2 = ...
-        k3 = ...
-
-        [Intrinsic]
-        0_0 = ...
-        0_1 = ...
-        0_2 = ...
-        1_0 = ...
-        1_1 = ...
-        1_2 = ...
-        2_0 = ...
-        2_1 = ...
-        2_2 = ...
+        distortion_coefficients:
+            5 個 double,順序為 [k1, k2, p1, p2, k3]
         """
 
-        config = configparser.ConfigParser()
-
-        loaded_files = config.read(
-            calibration_file
+        camera_matrix_values = list(
+            self.get_parameter('camera_matrix')
+            .get_parameter_value()
+            .double_array_value
         )
 
-        if not loaded_files:
-            raise RuntimeError(
-                'Failed to read calibration file: '
-                f'{calibration_file}'
-            )
+        distortion_values = list(
+            self.get_parameter('distortion_coefficients')
+            .get_parameter_value()
+            .double_array_value
+        )
 
-        if 'Intrinsic' not in config:
-            raise KeyError(
-                'Missing [Intrinsic] section in '
-                'camera_calibration.ini'
-            )
-
-        if 'Distortion' not in config:
-            raise KeyError(
-                'Missing [Distortion] section in '
-                'camera_calibration.ini'
-            )
-
-        intrinsic = config['Intrinsic']
-        distortion = config['Distortion']
-
-        try:
-            # Camera intrinsic matrix
-            camera_matrix = np.array(
-                [
-                    [
-                        float(intrinsic['0_0']),
-                        float(intrinsic['0_1']),
-                        float(intrinsic['0_2'])
-                    ],
-                    [
-                        float(intrinsic['1_0']),
-                        float(intrinsic['1_1']),
-                        float(intrinsic['1_2'])
-                    ],
-                    [
-                        float(intrinsic['2_0']),
-                        float(intrinsic['2_1']),
-                        float(intrinsic['2_2'])
-                    ]
-                ],
-                dtype=np.float64
-            )
-
-            # Distortion coefficients
-            k1 = float(distortion['k1'])
-            k2 = float(distortion['k2'])
-            t1 = float(distortion['t1'])
-            t2 = float(distortion['t2'])
-            k3 = float(distortion['k3'])
-
-        except KeyError as exception:
-            raise KeyError(
-                'Missing calibration parameter: '
-                f'{exception}'
-            ) from exception
-
-        except ValueError as exception:
+        if len(camera_matrix_values) != 9:
             raise ValueError(
-                'Calibration parameter is not a valid number: '
-                f'{exception}'
-            ) from exception
+                'Parameter "camera_matrix" must contain '
+                'exactly 9 values (row-major 3x3), '
+                f'but got {len(camera_matrix_values)}.'
+            )
 
-        # OpenCV distortion coefficient order:
-        # [k1, k2, p1, p2, k3]
-        #
-        # 你的 INI 使用 t1、t2，
-        # 在 OpenCV 中分別對應 p1、p2。
+        if len(distortion_values) != 5:
+            raise ValueError(
+                'Parameter "distortion_coefficients" must contain '
+                'exactly 5 values [k1, k2, p1, p2, k3], '
+                f'but got {len(distortion_values)}.'
+            )
+
+        camera_matrix = np.array(
+            camera_matrix_values,
+            dtype=np.float64
+        ).reshape(3, 3)
+
         distortion_coefficients = np.array(
-            [
-                k1,
-                k2,
-                t1,
-                t2,
-                k3
-            ],
+            distortion_values,
             dtype=np.float64
         ).reshape(1, 5)
 
@@ -405,6 +261,26 @@ class CameraCalibNode(Node):
 
         self.current_image_size = image_size
 
+        # 檢查影像解析度與內參是否可能不匹配
+        # 主點應該落在畫面中心附近
+        expected_cx = image_width / 2.0
+        expected_cy = image_height / 2.0
+
+        actual_cx = self.camera_matrix[0, 2]
+        actual_cy = self.camera_matrix[1, 2]
+
+        if (
+            abs(actual_cx - expected_cx) > image_width * 0.1
+            or abs(actual_cy - expected_cy) > image_height * 0.1
+        ):
+            self.get_logger().warning(
+                'Principal point is far from image center. '
+                'The intrinsics may not match this resolution. '
+                f'Image: {image_width}x{image_height}, '
+                f'cx={actual_cx:.2f} (expected ~{expected_cx:.1f}), '
+                f'cy={actual_cy:.2f} (expected ~{expected_cy:.1f})'
+            )
+
         self.new_camera_matrix, roi = (
             cv2.getOptimalNewCameraMatrix(
                 self.camera_matrix,
@@ -431,50 +307,25 @@ class CameraCalibNode(Node):
             f'{image_width} x {image_height}'
         )
 
+        # 下游若使用 output_topic 的影像做像素→世界座標轉換,
+        # 必須使用這組 new camera matrix,而非原始內參。
         self.get_logger().info(
-            f'New camera matrix:\n{self.new_camera_matrix}'
+            'New camera matrix (use this for undistorted images):'
+            f'\n{self.new_camera_matrix}'
         )
 
         self.get_logger().info(
             f'Valid ROI: {roi}'
         )
 
-    def resize_for_display(
-        self,
-        image,
-        max_width=960
-    ):
-        """
-        只縮放 OpenCV 顯示視窗。
-
-        不會改變發布到 /camera_calib 的影像尺寸。
-        """
-
-        height, width = image.shape[:2]
-
-        if width <= max_width:
-            return image
-
-        scale = max_width / float(width)
-
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-
-        return cv2.resize(
-            image,
-            (new_width, new_height),
-            interpolation=cv2.INTER_AREA
-        )
-
     def image_callback(self, message):
         """
-        接收 /rgb/image_raw。
+        接收輸入影像。
 
         流程：
         1. ROS Image 轉 OpenCV
         2. 去除鏡頭畸變
-        3. 發布至 /camera_calib
-        4. 顯示原始與校正後影像
+        3. 發布至 output_topic
         """
 
         # ==================================================
@@ -548,79 +399,6 @@ class CameraCalibNode(Node):
             )
             return
 
-        # ==================================================
-        # Create display images
-        # 使用 copy，避免文字被發布出去
-        # ==================================================
-        # raw_display_image = raw_image.copy()
-        # calibrated_display_image = calibrated_image.copy()
-
-        # cv2.putText(
-        #     raw_display_image,
-        #     'Raw Image',
-        #     (30, 50),
-        #     cv2.FONT_HERSHEY_SIMPLEX,
-        #     1.0,
-        #     (0, 255, 255),
-        #     2,
-        #     cv2.LINE_AA
-        # )
-
-        # cv2.putText(
-        #     calibrated_display_image,
-        #     'Camera Calibrated Image',
-        #     (30, 50),
-        #     cv2.FONT_HERSHEY_SIMPLEX,
-        #     1.0,
-        #     (0, 255, 0),
-        #     2,
-        #     cv2.LINE_AA
-        # )
-
-        # raw_display_image = self.resize_for_display(
-        #     raw_display_image
-        # )
-
-        # calibrated_display_image = self.resize_for_display(
-        #     calibrated_display_image
-        # )
-
-        # ==================================================
-        # Show OpenCV windows
-        # ==================================================
-
-        # if self.show_raw_image:
-        #     cv2.imshow(
-        #         'Raw RGB Image',
-        #         raw_display_image
-        #     )
-
-        # if self.show_calibrated_image:
-        #     cv2.imshow(
-        #         'Camera Calibrated Image',
-        #         calibrated_display_image
-        #     )
-
-        # if (
-        #     self.show_raw_image
-        #     or self.show_calibrated_image
-        # ):
-        #     key = cv2.waitKey(1) & 0xFF
-
-        #     if key == ord('q') or key == 27:
-        #         self.get_logger().info(
-        #             'Closing OpenCV windows.'
-        #         )
-
-        #         cv2.destroyAllWindows()
-
-        #         self.show_raw_image = False
-        #         self.show_calibrated_image = False
-
-    def destroy_node(self):
-        cv2.destroyAllWindows()
-        return super().destroy_node()
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -640,8 +418,6 @@ def main(args=None):
         )
 
     finally:
-        cv2.destroyAllWindows()
-
         if node is not None:
             node.destroy_node()
 

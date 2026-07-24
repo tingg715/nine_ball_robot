@@ -38,6 +38,7 @@ setup(
             'ball_position_test = hiwin_control.ball_position_test:main',
             'move_to_armpos = hiwin_control.move_to_armpos:main',
             'arm_controller_ball_coordinate = hiwin_control.arm_controller_ball_coordinate:main',
+            'move_above_cue_aim = hiwin_control.move_above_cue_aim:main',
 
         ],
     },

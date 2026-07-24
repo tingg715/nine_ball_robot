@@ -51,6 +51,15 @@ class ObjectDetection(Node):
             True,
             ParameterDescriptor(description="Show detection image")
         )
+        self.declare_parameter(
+            "window_width",
+            960,
+            ParameterDescriptor(
+                description="Initial display window width in pixels. "
+                            "The window can be freely resized afterwards "
+                            "and the aspect ratio is preserved."
+            )
+        )
 
         weights_file = self.get_parameter("weights").get_parameter_value().string_value
         self.weights = os.path.join(
@@ -64,6 +73,11 @@ class ObjectDetection(Node):
         self.device = self.get_parameter("device").get_parameter_value().string_value
         self.img_size = self.get_parameter("img_size").get_parameter_value().integer_value
         self.show_img = self.get_parameter("show_img").get_parameter_value().bool_value
+        self.window_width = self.get_parameter("window_width").get_parameter_value().integer_value
+
+        # Display window state
+        self.window_name = "YOLOv12 Object Detection RGB"
+        self.window_created = False
 
         self.cv_bridge = CvBridge()
         self.rgb_image = None
@@ -102,6 +116,48 @@ class ObjectDetection(Node):
         self.get_logger().info("ObjectDetection node started.")
         self.get_logger().info("Subscribing to /camera_calib")
         self.get_logger().info("Publishing to /detect/objs")
+
+    def create_display_window(self, image_width, image_height):
+        """
+        建立可自由縮放的顯示視窗。
+
+        WINDOW_NORMAL    : 允許使用者拖曳視窗邊緣改變大小
+        WINDOW_KEEPRATIO : 縮放時維持影像的長寬比,不會被拉扁
+        WINDOW_GUI_EXPANDED : 啟用較完整的工具列(需 Qt 後端,
+                              沒有時會自動忽略)
+
+        只在第一次顯示時建立一次,
+        之後使用者調整的視窗大小會被保留。
+        """
+
+        if self.window_created:
+            return
+
+        cv2.namedWindow(
+            self.window_name,
+            cv2.WINDOW_NORMAL
+            | cv2.WINDOW_KEEPRATIO
+            | cv2.WINDOW_GUI_EXPANDED
+        )
+
+        # 依影像長寬比計算初始視窗高度
+        aspect_ratio = image_height / float(image_width)
+
+        initial_width = self.window_width
+        initial_height = int(round(initial_width * aspect_ratio))
+
+        cv2.resizeWindow(
+            self.window_name,
+            initial_width,
+            initial_height
+        )
+
+        self.window_created = True
+
+        self.get_logger().info(
+            f"Display window created: {initial_width}x{initial_height} "
+            f"(source {image_width}x{image_height}, resizable, ratio locked)"
+        )
 
     def rs_callback(self, msg):
         try:
@@ -250,13 +306,27 @@ class ObjectDetection(Node):
                 2
             )
 
-            show = cv2.resize(im0, None, fx=0.5, fy=0.5)
+            try:
+                # 建立可縮放視窗(只會執行一次)
+                self.create_display_window(image_width, image_height)
 
-            cv2.imshow("YOLOv12 Object Detection RGB", show)
+                # 直接送入原始解析度影像,
+                # 由視窗負責等比例縮放顯示
+                cv2.imshow(self.window_name, im0)
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                cv2.destroyAllWindows()
-                rclpy.shutdown()
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    cv2.destroyAllWindows()
+                    self.window_created = False
+                    self.show_img = False
+                    self.get_logger().info(
+                        "Display closed. Detection continues in background."
+                    )
+
+            except cv2.error as e:
+                self.get_logger().warn(
+                    f"Failed to display image (no GUI available?): {e}"
+                )
+                self.show_img = False
 
 
 def main(args=None):

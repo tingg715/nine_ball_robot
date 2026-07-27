@@ -158,7 +158,14 @@ def outofbound(hitx, hity):
     checkhityplus = hity + r/4
     checkhitxminus = hitx - r/4
     checkhityminus = hity - r/4
-    if checkhitxplus > holex[3] or checkhityplus > holey[0] or checkhitxminus < holex[0] or checkhityminus < holey[1]:
+    # Use the actual min/max of the pocket coordinates so the bound check is
+    # independent of how pot0..pot3 are oriented in arm.yaml. The old code
+    # assumed holey[0] was the top edge and holey[1] the bottom, but the
+    # re-measured big-table pots flipped the y order (hole_0 is now min-y),
+    # which made every on-table point read as out of bounds.
+    xmax, xmin = max(holex), min(holex)
+    ymax, ymin = max(holey), min(holey)
+    if checkhitxplus > xmax or checkhityplus > ymax or checkhitxminus < xmin or checkhityminus < ymin:
         hitoutbound = 1
     else:
         hitoutbound = 0

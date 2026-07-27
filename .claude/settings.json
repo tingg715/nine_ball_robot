@@ -10,7 +10,17 @@
       "Bash(python3 -m py_compile src/hiwin_control/hiwin_control/move_to_armpos.py)",
       "Bash(python3 -m py_compile src/hiwin_control/setup.py)",
       "Bash(ros2 pkg *)",
-      "Bash(find / -name \"rectify_node*\")"
+      "Bash(find / -name \"rectify_node*\")",
+      "Bash(python3 -m py_compile src/hiwin_control/hiwin_control/arm_controller_ball_coordinate.py)",
+      "Bash(xargs cat)",
+      "Bash(python3 -m py_compile src/hiwin_control/hiwin_control/arm_controler_how.py)",
+      "Bash(cp src/hiwin_control/hiwin_control/nine_ball_strat.py \"/tmp/claude-1000/-home-how-nine-ball-robot/5210c8f2-7c06-4cbc-a96e-3127bff15056/scratchpad/nine_ball_strat.BEFORE-outofbound-fix.py\" && echo \"backed up nine_ball_strat.py\")",
+      "Bash(python3 -m py_compile src/hiwin_control/hiwin_control/nine_ball_strat.py)",
+      "Bash(git log *)",
+      "Bash(echo \"exit=$?\")"
+    ],
+    "additionalDirectories": [
+      "/tmp/claude-1000/-home-how-nine-ball-robot/5210c8f2-7c06-4cbc-a96e-3127bff15056/scratchpad"
     ]
   }
 }

@@ -23,15 +23,15 @@ import hiwin_control.nine_ball_strat as table2
 import hiwin_control.pool_strat_v2 as pool
 import matplotlib.pyplot as plt
 
-CUE_TOOL = 12
+CUE_TOOL = 8
 
 DEFAULT_VELOCITY = 70
 DEFAULT_ACCELERATION = 70
 
 LIGHT_PIN = 6
-HITSOFT_PIN = 4
+HITSOFT_PIN = 5
 HITMID_PIN = 5
-HITHEAVY_PIN = 1
+HITHEAVY_PIN = 5
 HEAVY_PIN = 2
 
 # [1.5683861280265246, -0.0021305364693475553, -3.056812207597806]
@@ -65,6 +65,18 @@ _CAM_FY = CAMERA_MATRIX[1, 1]
 _CAM_CX = CAMERA_MATRIX[0, 2]
 _CAM_CY = CAMERA_MATRIX[1, 2]
 
+# Intrinsics of the UNDISTORTED /camera_calib image. camera.py undistorts the
+# full frame with cv2.getOptimalNewCameraMatrix(CAMERA_MATRIX, DIST_COEFFS,
+# (1920, 1080), alpha=1.0), which produces a new camera matrix that differs
+# from CAMERA_MATRIX (fx/fy change ~5%). YOLO detects on /camera_calib, so the
+# pixels reaching pixel_mm_convert() are already undistorted and must be
+# back-projected with THIS matrix, not the raw CAMERA_MATRIX.
+# Recompute these four numbers if the camera resolution or alpha ever change.
+UNDIST_FX = 971.95350841
+UNDIST_FY = 945.02372408
+UNDIST_CX = 953.55747662
+UNDIST_CY = 547.74959054
+
 # Read tool to camera vector
 current_dir = os.getcwd()
 config = configparser.ConfigParser()
@@ -86,6 +98,15 @@ FIX_ABS_RIGHT_CAM = [150.0, 332.87, 425.164, -179.999, -0.002, 89.644]  # provis
 FIX_ABS_LEFT_CAM = [-150.0, 332.87, 425.164, -179.999, -0.002, 89.644]  # provisional, replace after jogging to the real left-photo pose
 CAM_TO_TABLE = data['zoff']
 # CAM_TO_TABLE = 475
+
+# When False, skip the DYNAMIC_CALI visual-servo refinement on the MAIN path
+# (cue ball visible in the first photo) and shoot using the first-photo
+# coordinates directly. STRATEGY then uses the first-photo target/cue positions
+# instead of the servo-refined ones. Set back to True to restore the old
+# behaviour. NOTE: the side-photo fallback (LOCK_CUE, cue not in first photo)
+# still uses DYNAMIC_CALI, because there is no first-photo coordinate for the
+# cue in that case.
+USE_DYNAMIC_CALI = False
 
 class States(Enum):
     INIT = 0
@@ -134,14 +155,16 @@ def mid_point_error(mid_ball: list) -> float:
     return mid_error
 
 def pixel_mm_convert(cam_to_table_h, pixels):
-    # Undistort the pixel with the calibrated intrinsics + distortion
-    # coefficients, then back-project with the calibrated pinhole model.
-    # Replaces the old hardcoded 69x42 FOV (the previous RealSense camera).
-    raw = np.array([[[float(pixels[0]), float(pixels[1])]]])
-    u, v = cv2.undistortPoints(raw, CAMERA_MATRIX, DIST_COEFFS, P=CAMERA_MATRIX)[0, 0]
+    # The incoming pixel is already undistorted: YOLO detects on the
+    # /camera_calib image, which camera.py has undistorted for the full frame.
+    # So we do NOT run cv2.undistortPoints here (that would double-correct).
+    # We simply back-project with the undistorted image's intrinsics (UNDIST_*),
+    # not the raw CAMERA_MATRIX.
+    u = float(pixels[0])
+    v = float(pixels[1])
 
-    dev_x = (u - _CAM_CX) * cam_to_table_h / _CAM_FX
-    dev_y = (v - _CAM_CY) * cam_to_table_h / _CAM_FY
+    dev_x = (u - UNDIST_CX) * cam_to_table_h / UNDIST_FX
+    dev_y = (v - UNDIST_CY) * cam_to_table_h / UNDIST_FY
     cam_to_ball_pose = [dev_x, dev_y, 1.0]
 
     return cam_to_ball_pose
@@ -383,7 +406,7 @@ class Hiwin_Controller(Node):
                     temp_ball_pose_mm = pixel_mm_convert(CAM_TO_TABLE, target)
                     temp_actual_pose = convert_arm_pose(temp_ball_pose_mm, FIX_ABS_CAM)
                     self.ball_pose.append(temp_actual_pose[0:2])
-                nest_state = States.DYNAMIC_CALI
+                nest_state = States.DYNAMIC_CALI if USE_DYNAMIC_CALI else States.OPEN_SEC_IO
 
             else:
                 print("Fuck Cue ball")
@@ -550,17 +573,25 @@ class Hiwin_Controller(Node):
             print("\n")
 
 
-            actual_x[0] = self.updated_target_cue[0]
-            actual_y[0] = self.updated_target_cue[1]
-            actual_x[-1] = self.updated_target_cue[-2]
-            actual_y[-1] =  self.updated_target_cue[-1]
+            if self.updated_target_cue:
+                # DYNAMIC_CALI ran: overwrite target ball (index 0) and cue ball
+                # (index -1) with the servo-refined positions.
+                actual_x[0] = self.updated_target_cue[0]
+                actual_y[0] = self.updated_target_cue[1]
+                actual_x[-1] = self.updated_target_cue[-2]
+                actual_y[-1] =  self.updated_target_cue[-1]
+                cuex, cuey = self.updated_target_cue[-2], self.updated_target_cue[-1]
+            else:
+                # DYNAMIC_CALI skipped (USE_DYNAMIC_CALI=False): keep the
+                # first-photo coordinates already computed above for every ball,
+                # including the cue (last entry).
+                cuex, cuey = actual_x[-1], actual_y[-1]
             print("after cali x:", actual_x)
             print("after cali y:", actual_y)
             '''
             check before and after update
             '''
             ballcount = len(actual_x) - 1
-            cuex, cuey = self.updated_target_cue[-2], self.updated_target_cue[-1]
 
             self.get_logger().info('CALCULATE PATH')
             # table.main returns -> [bestscore, bestvx, bestvy, countobs, final_self.hitpointx, final_self.hitpointy]
@@ -619,7 +650,7 @@ class Hiwin_Controller(Node):
             self.current_tool_pose = res.current_position
             # yaw, _ = yaw_angle(vx, vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -70.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_tool_pose[3:6]
 
             req = self.generate_robot_request(
@@ -683,10 +714,10 @@ class Hiwin_Controller(Node):
             self.current_pose = res.current_position
             if self.obstacle == 0:
                 # ............................................
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -135.0]
+                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -92.194]
                 # ............................................
             else:
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -122.445]
+                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -82.164]
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_pose[3:6]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
@@ -724,7 +755,7 @@ class Hiwin_Controller(Node):
             vy = self.strategy_info[2]
             yaw, _ = yaw_angle(-vx, -vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -70.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_pose[3:6]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
@@ -747,7 +778,9 @@ class Hiwin_Controller(Node):
                 digital_output_pin = HEAVY_PIN
             )
             res = self.call_hiwin(req)
-            nest_state = States.AF_HITPOINT_TOP
+            # Skip AF_HITPOINT_TOP (the extra yaw-to-home step); go straight back
+            # to INIT, whose joint reset (END_TURN_RIGHT) re-homes the arm anyway.
+            nest_state = States.INIT
 
 
         elif state == States.AF_HITPOINT_TOP:
@@ -758,7 +791,7 @@ class Hiwin_Controller(Node):
             vy = self.strategy_info[2]
             yaw, _ = yaw_angle(-vx, -vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -70.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
             [pose.angular.x, pose.angular.y, pose.angular.z] = [-180., 0., 90.]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,

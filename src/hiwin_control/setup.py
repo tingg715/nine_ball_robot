@@ -6,6 +6,9 @@ setup(
     name=package_name,
     version='0.0.0',
     packages=find_packages(exclude=['test']),
+    # 校正檔（.ini/.yaml）跟 .py 放在同一個資料夾，程式用 __file__ 推路徑找它們，
+    # 所以安裝時必須一起複製到 site-packages/hiwin_control/，否則執行期會找不到。
+    package_data={package_name: ['*.ini', '*.yaml']},
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),

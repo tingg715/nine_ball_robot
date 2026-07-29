@@ -48,18 +48,19 @@ CALI_HIGHT = 80.0
 # Camera intrinsics + distortion, from camera_calibration.ini (Azure Kinect).
 # Used by pixel_mm_convert() for the calibrated pinhole back-projection.
 CAMERA_MATRIX = np.array([
-    [923.2900734226928, 0.0, 956.336780370788],
-    [0.0, 922.8913296403708, 547.7923321648962],
+    [921.1464532814899, 0.0, 957.208934796569],
+    [0.0, 919.785424897187, 553.1754854696636],
     [0.0, 0.0, 1.0],
 ])
 # OpenCV order [k1, k2, p1, p2, k3]; the ini's t1/t2 are p1/p2.
 DIST_COEFFS = np.array([
-    0.0941993074255769,     # k1
-    -0.07417523933713971,   # k2
-    0.000282306705644396,   # t1 (p1)
-    -0.0012181647924617714, # t2 (p2)
-    0.0339138272188274,     # k3
+    0.08790006867482206,     # k1
+    -0.062180853042901774,   # k2
+    0.0023044976254808424,   # t1 (p1)
+    -0.0008184342596589589,  # t2 (p2)
+    0.02495957912562247,     # k3
 ])
+
 _CAM_FX = CAMERA_MATRIX[0, 0]
 _CAM_FY = CAMERA_MATRIX[1, 1]
 _CAM_CX = CAMERA_MATRIX[0, 2]
@@ -72,10 +73,10 @@ _CAM_CY = CAMERA_MATRIX[1, 2]
 # pixels reaching pixel_mm_convert() are already undistorted and must be
 # back-projected with THIS matrix, not the raw CAMERA_MATRIX.
 # Recompute these four numbers if the camera resolution or alpha ever change.
-UNDIST_FX = 971.95350841
-UNDIST_FY = 945.02372408
-UNDIST_CX = 953.55747662
-UNDIST_CY = 547.74959054
+UNDIST_FX = 967.19430947
+UNDIST_FY = 940.82140851
+UNDIST_CX = 955.28346322
+UNDIST_CY = 554.72595329
 
 # Read tool to camera vector
 current_dir = os.getcwd()

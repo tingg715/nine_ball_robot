@@ -33,8 +33,11 @@ class ObjectDetection(Node):
         )
         self.declare_parameter(
             "iou_thres",
-            0.45,
-            ParameterDescriptor(description="IOU threshold")
+            0.3,
+            ParameterDescriptor(
+                description="NMS IOU threshold. 撞球場景中不同球的框幾乎不重疊, "
+                            "所以門檻可以比通用預設 0.45 低, 更能壓掉同一顆球的重複框。"
+            )
         )
         self.declare_parameter(
             "device",
@@ -186,6 +189,10 @@ class ObjectDetection(Node):
                 iou=self.iou_thres,
                 imgsz=self.img_size,
                 device=self.device if self.device != "" else None,
+                # NMS 預設只在「同類別」的框之間做壓制, 同一顆球若同時被判成
+                # 兩個號碼 (例如 3 和 5) 就不會互相抵銷, 造成重複偵測。
+                # agnostic_nms=True 讓 NMS 忽略類別, 只依位置重疊來壓制。
+                agnostic_nms=True,
                 verbose=False
             )
         except Exception as e:

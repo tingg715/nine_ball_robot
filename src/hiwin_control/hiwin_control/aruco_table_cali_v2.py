@@ -37,18 +37,18 @@ TAG_TABLE_POS = {   # 4 個標記各自在「桌面座標系」的位置 (mm)，
 # 手動 jog 手臂到一個能看到全桌4個標記的位置，pendant螢幕上顯示的座標直接
 # 填在這裡（法蘭/TCP姿態，不用換算），程式會原封不動地用這組數字下PTP指令
 # 移動過去，之後 arm_controller_v2.py 打球時也是直接用同一組數字移動回來。
-PHOTO_ARM_POSE = [0.0, 332.870, 425.166, 180.0, -0.003, 90.0]  # TODO: jog後從pendant讀值填入 [x,y,z,rx,ry,rz]
+PHOTO_ARM_POSE = [0.0, 334.049, 423.503, -180.0, 0.002, 90.0]  # TODO: jog後從pendant讀值填入 [x,y,z,rx,ry,rz]
 
 # 相機光心到桌面平面的最短垂直距離（公尺）。
-CAMERA_TO_TABLE_NORMAL_DISTANCE_M = 0.614
+CAMERA_TO_TABLE_NORMAL_DISTANCE_M = 0.695
 
-CAMERA_CALIBRATION_FILE = (
-    '/home/ting/work/src/hiwin_control/'
-    'hiwin_control/camera_calibration.ini'
-)
-HAND_EYE_CALIBRATION_FILE = (
-    '/home/ting/work/src/hiwin_control/'
-    'hiwin_control/eye_in_hand_calibration.ini'
+# 校正檔和本程式放在同一個資料夾，用 __file__ 推路徑，
+# 這樣不管從哪個工作目錄執行都找得到。
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CAMERA_CALIBRATION_FILE = os.path.join(THIS_DIR, 'camera_calibration.ini')
+HAND_EYE_CALIBRATION_FILE = os.path.join(
+    THIS_DIR, 'eye_in_hand_calibration.ini'
 )
 DEBUG_IMAGE_FILE = '/tmp/aruco_table_cali_debug.jpg'
 
@@ -567,7 +567,7 @@ class TableCaliV3(Node):
             self.config['armpos'] = [
                 float(value) for value in actual_robot_pose
             ]
-            self.config['zoff'] = 614.0
+            self.config['zoff'] = 695.0
 
             print("\n===== Pixel positions =====")
             for tag_id in TAG_TABLE_POS:

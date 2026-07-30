@@ -27,7 +27,6 @@ docker tag "${DOCKER_HUB_USER}/${IMAGE}:latest" "nineball_kinect:latest"
 ## 功能
 
 移動到拍照點位
-
 ros2 run hiwin_control move_to_armpos 
 
 移動到白球上方 瞄準方向為子球

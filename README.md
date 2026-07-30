@@ -24,10 +24,18 @@ export ROS_DOMAIN_ID=1
 source ./get_param.sh
 docker tag "${DOCKER_HUB_USER}/${IMAGE}:latest" "nineball_kinect:latest"
 
-## Test
+## 功能
+
+移動到拍照點位
+
+ros2 run hiwin_control move_to_armpos 
 
 移動到白球上方 瞄準方向為子球
 ros2 run hiwin_control move_above_cue_aim
+
+平面校正
+ros2 run hiwin_control aruco_table_cali_v2 
+
 
 ## Run Nine Ball Script
 ros2 launch azure_kinect_ros_driver driver.launch.py 
@@ -40,3 +48,4 @@ ros2 run center publisher_dection_boxes
 
 ros2 run hiwin_libmodbus hiwinlibmodbus_server
 
+ros2 run hiwin_control arm_controller_how 

@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'arm_controller = hiwin_control.arm_controller:main',
             'arm_controller_how = hiwin_control.arm_controler_how:main',
+            'arm_controller_track = hiwin_control.arm_controler_track:main',
             'arm_controller_v2 = hiwin_control.arm_controller_v2:main',
             'team_selection = hiwin_control.team_selection:main',
             'testbeat_arm_controller = hiwin_control.testbeat_arm_controller:main',

@@ -199,6 +199,34 @@ def pixel_mm_convert(cam_to_table_h, pixels):
 
     return cam_to_ball_pose
 
+# ============================================================
+# 像素 (u, v) -> base (x, y),實測擬合的 homography + Y 殘差補償。
+# 數值來源: src/pool/center/center/ball_coordinate_checker.py,兩份要一起改。
+#
+# 只在第一張照片的固定拍照姿態 FIX_ABS_CAM 成立 —— homography 是平面對平面的
+# 映射,手臂一移動就失效,所以 DYNAMIC_CALI / 側面照那些第二張照片還是要用
+# pixel_mm_convert()。
+# ============================================================
+PIXEL_TO_BASE_H = np.array([
+    [0.6953817196638,  -0.0049199588166, -663.7505877708],
+    [-0.0001255227889, -0.7173316193511,  835.0951639315],
+    [0.0000080206744,  -0.0000012882134,  1.0],
+], dtype=np.float64)
+
+Y_CORRECTION_C0 = 4.17110130
+Y_CORRECTION_U = -0.00271929316
+Y_CORRECTION_V = 0.00578073253
+
+def pixel_to_base(pixel_u, pixel_v):
+    u = float(pixel_u)
+    v = float(pixel_v)
+
+    p = PIXEL_TO_BASE_H @ np.array([u, v, 1.0])
+    base_x = p[0] / p[2]
+    base_y = p[1] / p[2] + Y_CORRECTION_C0 + Y_CORRECTION_U*u + Y_CORRECTION_V*v
+
+    return base_x, base_y
+
 def yaw_angle(vectorx, vectory):
     vectorlength = math.sqrt((vectorx**2)+(vectory**2))
     rad = math.acos((-1*vectory)/(vectorlength*1))
@@ -602,10 +630,9 @@ class Hiwin_Controller(Node):
             actual_y = []
             self.get_logger().info('UPDATE BALL POSITION')
             for i in range(0, len(self.ball_pose_buffer), 2):
-                i_rela_to_cam = pixel_mm_convert(CAM_TO_BALL, self.ball_pose_buffer[i:i+2])
-                actual_ball_pose = convert_arm_pose(i_rela_to_cam, FIX_ABS_CAM)
-                actual_x.append(actual_ball_pose[0])
-                actual_y.append(actual_ball_pose[1])
+                base_x, base_y = pixel_to_base(self.ball_pose_buffer[i], self.ball_pose_buffer[i+1])
+                actual_x.append(base_x)
+                actual_y.append(base_y)
             print("before cali x:", actual_x)
             print("before cali y:", actual_y)
             print("\n")

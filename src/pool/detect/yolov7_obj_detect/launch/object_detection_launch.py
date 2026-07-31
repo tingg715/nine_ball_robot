@@ -10,7 +10,7 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     # Declare launch arguments
     weights_arg = DeclareLaunchArgument('weights', default_value='best.pt', description='Weights file')
-    conf_thres_arg = DeclareLaunchArgument('conf_thres', default_value='0.80', description='Confidence threshold')
+    conf_thres_arg = DeclareLaunchArgument('conf_thres', default_value='0.70', description='Confidence threshold')
     iou_thres_arg = DeclareLaunchArgument('iou_thres', default_value='0.45', description='IOU threshold')
     device_arg = DeclareLaunchArgument('device', default_value='', description='Name of the device')
     img_size_arg = DeclareLaunchArgument('img_size', default_value='640', description='Image size')

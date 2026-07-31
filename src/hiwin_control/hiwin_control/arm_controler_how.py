@@ -25,6 +25,22 @@ import matplotlib.pyplot as plt
 
 CUE_TOOL = 8
 
+# 桌面在 base frame 的 Z。由 arm.yaml 推得（2026-07-29 重標定後）：
+#   armpos_z 423.503 + TOOL_TO_CAM[2] 68.170 - zoff 695.0 = -203.327
+# 與 arm.yaml 的 pot0~3 z (-203.329) 相符，差 0.002mm。
+#
+# 本檔寫死的 z 都是「桌面 + 固定偏移」，但各點偏移是分別用 pendant 實測定出來的，
+# 不是從舊值統一平移而來 —— 桌面再變時要逐點重測，不要整批加減。
+# 目前實測值（相對桌面 -203.327）：
+#   PITCH_POSE_XYZ    z   14.682 = 桌面 +218.0   中間仰角點，空曠可自由加高
+#   HITPOINT_TOP/退回 z -124.318 = 桌面  +79.0
+#   擊球 obstacle==0  z -175.000 = 桌面  +28.3
+#   擊球 obstacle==1  z -162.433 = 桌面  +40.9
+#
+# HITPOINT_PITCH: 先在這個空曠的中間點把仰角轉好，再移到球上方，避免桿子掃到別的球。
+PITCH_POSE_XYZ = [0., 375., 14.682]  # 桌面 +218.0，純淨空點，可自由加高
+PITCH_ANGLE_Y = 20.0  # 路徑有障礙時的抬桿仰角（度）；無障礙則沿用當前 Ry
+
 DEFAULT_VELOCITY = 70
 DEFAULT_ACCELERATION = 70
 
@@ -40,10 +56,7 @@ HEAVY_PIN = 2
 # FIX_ABS_LEFT_CAM = [-114.326, 376.998, 411.897, 180.0, 0.0, 90.0]
 END_TURN_RIGHT = [90.00, 0.00, 0.00, 0.00, -90.00, 0.00] #手臂TURN右
 END_TURN_HALL=[0.00, 44.832, 408.491, -179.999, -30.972, 89.998]
-TOOL_TO_CAM = [-35.5467, 77.6499, -68.2193]
 
-# CAM_TO_TABLE = 480
-CALI_HIGHT = 80.0
 
 # Camera intrinsics + distortion, from camera_calibration.ini (Azure Kinect).
 # Used by pixel_mm_convert() for the calibrated pinhole back-projection.
@@ -84,9 +97,11 @@ config = configparser.ConfigParser()
 file_path_ini = current_dir + '/src/hiwin_control/hiwin_control/eye_in_hand_calibration.ini'
 config.read(file_path_ini)
 tm = config['hand_eye_calibration']
-TOOL_TO_CAM[0] = float(tm['y'])*1000
-TOOL_TO_CAM[1] = float(tm['x'])*1000
-TOOL_TO_CAM[2] = -float(tm['z'])*1000
+TOOL_TO_CAM = [
+    float(tm['y'])*1000,
+    float(tm['x'])*1000,
+    -float(tm['z'])*1000,
+]
 
 # Read table pot hole position and camera to table height
 file_path_yaml = current_dir + '/src/hiwin_control/hiwin_control/arm.yaml'
@@ -99,6 +114,13 @@ FIX_ABS_RIGHT_CAM = [150.0, 332.87, 425.164, -179.999, -0.002, 89.644]  # provis
 FIX_ABS_LEFT_CAM = [-150.0, 332.87, 425.164, -179.999, -0.002, 89.644]  # provisional, replace after jogging to the real left-photo pose
 CAM_TO_TABLE = data['zoff']
 # CAM_TO_TABLE = 475
+
+# 球心離桌面的高度 = 球半徑(球徑 38mm)。相機看到的是球心,不是桌面上的點。
+BALL_R = 19.0
+# 反投影「球」的像素要用「相機 → 球心平面」的距離。用 CAM_TO_TABLE(到桌面)
+# 會把球往外推:誤差 = 離畫面中心距離 x (695/676 - 1) = 2.81%,桌角約 18mm。
+# 注意:算桌面高度的 self.table_z 仍然要用 CAM_TO_TABLE,不要一起換掉。
+CAM_TO_BALL = CAM_TO_TABLE - BALL_R
 
 # When False, skip the DYNAMIC_CALI visual-servo refinement on the MAIN path
 # (cue ball visible in the first photo) and shoot using the first-photo
@@ -565,7 +587,7 @@ class Hiwin_Controller(Node):
             actual_y = []
             self.get_logger().info('UPDATE BALL POSITION')
             for i in range(0, len(self.ball_pose_buffer), 2):
-                i_rela_to_cam = pixel_mm_convert(CAM_TO_TABLE, self.ball_pose_buffer[i:i+2])
+                i_rela_to_cam = pixel_mm_convert(CAM_TO_BALL, self.ball_pose_buffer[i:i+2])
                 actual_ball_pose = convert_arm_pose(i_rela_to_cam, FIX_ABS_CAM)
                 actual_x.append(actual_ball_pose[0])
                 actual_y.append(actual_ball_pose[1])
@@ -610,19 +632,10 @@ class Hiwin_Controller(Node):
             self.current_tool_pose = res.current_position
             self.get_logger().info('MOVING PITCH ANGLE IF ANY...')
             pose = Twist()
-            if self.obstacle == 1:
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [0., 408., 132.]
-                pose.angular.x = self.current_tool_pose[3]
-                pose.angular.y = 20.
-                pose.angular.z = self.current_tool_pose[5]
-            else:
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [0., 408., 132.]
-                # ............................................
-                pose.angular.x = self.current_tool_pose[3]
-                pose.angular.y = 20.
-                pose.angular.z = self.current_tool_pose[5]
-                # ............................................
-                [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_tool_pose[3:6]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = PITCH_POSE_XYZ  # 寫死的中間仰角點
+            pose.angular.x = self.current_tool_pose[3]
+            pose.angular.y = PITCH_ANGLE_Y if self.obstacle == 1 else self.current_tool_pose[4]
+            pose.angular.z = self.current_tool_pose[5]
             print("POSE:", pose)
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
@@ -651,7 +664,7 @@ class Hiwin_Controller(Node):
             self.current_tool_pose = res.current_position
             # yaw, _ = yaw_angle(vx, vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -124.318]  # 桌面 +79.0
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_tool_pose[3:6]
 
             req = self.generate_robot_request(
@@ -715,10 +728,10 @@ class Hiwin_Controller(Node):
             self.current_pose = res.current_position
             if self.obstacle == 0:
                 # ............................................
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -92.194]
+                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -175.0]
                 # ............................................
             else:
-                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -82.164]
+                [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -162.433]
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_pose[3:6]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
@@ -756,7 +769,7 @@ class Hiwin_Controller(Node):
             vy = self.strategy_info[2]
             yaw, _ = yaw_angle(-vx, -vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -124.318]
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_pose[3:6]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
@@ -792,7 +805,7 @@ class Hiwin_Controller(Node):
             vy = self.strategy_info[2]
             yaw, _ = yaw_angle(-vx, -vy)
             pose = Twist()
-            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -50.0]
+            [pose.linear.x, pose.linear.y, pose.linear.z] = [self.hitpointx, self.hitpointy, -124.318]
             [pose.angular.x, pose.angular.y, pose.angular.z] = [-180., 0., 90.]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,

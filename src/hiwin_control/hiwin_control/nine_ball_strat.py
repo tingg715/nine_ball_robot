@@ -23,6 +23,12 @@ r = 19
 #radius of holes (measured hole mouth width ~60mm / 2)
 rb = 30
 
+# 桿頭停位離「母球球面」的空隙(mm)。由氣缸行程與桿長決定，跟球徑無關，
+# 所以不要再寫成 r 的倍數。舊寫法 hitpoint() 用 1.5*r，在 r=16 時剛好
+# 等於 r+8；球換成 38mm(r=19) 之後 1.5*r 讓空隙偷偷從 8.0mm 變成 9.5mm，
+# 而氣缸行程/桿長都沒變 —— 等於白白吃掉 1.5mm 有效推程。
+CUE_STANDOFF = 8.5
+
 # TOP_LEFT = [-311.196, 612.0]
 
 # #define hole locations and aiming point
@@ -146,9 +152,12 @@ def findhitpoint(ballx, bally, vectorx, vectory):
     return hitpointx, hitpointy
 
 def hitpoint(ballx, bally, vectorx, vectory):
+    # 桿頭停位:從母球球心沿擊球反方向退 r + CUE_STANDOFF。
+    # 不用 1.5*r,因為空隙是機構常數,不該跟著球徑縮放(見 CUE_STANDOFF)。
     vectorlengh = math.sqrt(abs(vectorx)**2+abs(vectory)**2)
-    x = vectorx*1.5*r/vectorlengh
-    y = vectory*1.5*r/vectorlengh
+    standoff = r + CUE_STANDOFF
+    x = vectorx*standoff/vectorlengh
+    y = vectory*standoff/vectorlengh
     hitpointx = ballx-x
     hitpointy = bally-y
     return hitpointx, hitpointy

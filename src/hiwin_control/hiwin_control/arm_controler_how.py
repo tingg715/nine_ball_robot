@@ -45,10 +45,17 @@ DEFAULT_VELOCITY = 70
 DEFAULT_ACCELERATION = 70
 
 LIGHT_PIN = 6
-HITSOFT_PIN = 5
-HITMID_PIN = 5
-HITHEAVY_PIN = 5
+# 擊球電磁閥(單控 / 彈簧復歸)。原本 SOFT/MID/HEAVY 是 4/5/1 三條不同氣壓的
+# 氣路，由 score 挑一條；現在硬體只剩這一條，力道由氣壓調節器決定(程式碰不到)。
+HIT_PIN = 5
 HEAVY_PIN = 2
+
+# 擊球電磁閥通電時間(秒) = 閥開啟時間 = 氣缸伸出停留時間。
+# 單控閥斷電才靠彈簧復歸，所以這個值就是「氣缸伸出多久才縮回」。
+# 必須 >= 氣缸跑完行程的時間；設太短是在氣缸還在加速時切斷氣源，
+# 結果是擊球不完全而且每一桿都不一樣(不可重複)。
+# 這不是力道旋鈕 —— 力道請調氣壓調節器。
+HIT_ON_SEC = 0.2
 
 # [1.5683861280265246, -0.0021305364693475553, -3.056812207597806]
 # FIX_ABS_CAM = [36.326, 376.998, 411.897, 180.0, 0.0, 90.0]
@@ -647,6 +654,8 @@ class Hiwin_Controller(Node):
             nest_state = States.CHECK_POSE
 
         elif state == States.HITPOINT_TOP:
+            # 路徑分數。目前不參與任何決策(擊球固定用 HIT_PIN，力道看氣壓調節器)，
+            # 留著是為了 debug 路徑選擇，也是將來要做力道分段時現成的輸入。
             self.score = self.strategy_info[0]
             self.obstacle = self.strategy_info[3]
             self.get_logger().info('MOVING TO HITPOINT TOP...')
@@ -745,22 +754,27 @@ class Hiwin_Controller(Node):
                 nest_state = None
 
         elif state == States.HITBALL:
-            if self.score <= 0:
-                hitpin = HITHEAVY_PIN
-            elif self.score <= 3500 and self.score > 0:
-                hitpin = HITHEAVY_PIN
-            elif self.score > 3500 and self.score <=5000:
-                hitpin = HITMID_PIN
-            else:
-                hitpin = HITSOFT_PIN
             self.get_logger().info('OPEN PIN TO HIT BALL')
-            print("hit pin IO:", hitpin)
+            print("hit pin IO:", HIT_PIN, " on(s):", HIT_ON_SEC)
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.DIGITAL_OUTPUT,
                 digital_output_cmd = RobotCommand.Request.DIGITAL_ON,
-                digital_output_pin = hitpin
+                digital_output_pin = HIT_PIN
             )
             self.call_hiwin(req)
+
+            # 通電時間由 HIT_ON_SEC 決定，不是由退回動作的長度決定。
+            # 之前 OFF 排在下面那個 PTP 之後，而 PTP 是 holding=True(阻塞)，
+            # 單控閥會一路通電到手臂退回完成才斷電 —— 氣缸整段退回過程都是
+            # 伸出狀態，桿子被手臂拖著走。
+            time.sleep(HIT_ON_SEC)
+
+            req = self.generate_robot_request(
+                cmd_mode = RobotCommand.Request.DIGITAL_OUTPUT,
+                digital_output_cmd = RobotCommand.Request.DIGITAL_OFF,
+                digital_output_pin = HIT_PIN
+            )
+            res = self.call_hiwin(req)
 
             self.get_logger().info('MOVING BACK TO HIT POINT TOP WITH YAW ANGLE...')
             self.hitpointx = self.strategy_info[4]
@@ -773,16 +787,10 @@ class Hiwin_Controller(Node):
             [pose.angular.x, pose.angular.y, pose.angular.z] = self.current_pose[3:6]
             req = self.generate_robot_request(
                 cmd_mode = RobotCommand.Request.PTP,
-                # holding=False,
+                # holding 維持 default True: 退回動作要做完才進 INIT，
+                # 否則會跟 INIT 的 END_TURN_RIGHT JOINTS_CMD 疊在一起。
                 tool = CUE_TOOL,
                 pose = pose
-            )
-            res = self.call_hiwin(req)
-
-            req = self.generate_robot_request(
-                cmd_mode = RobotCommand.Request.DIGITAL_OUTPUT,
-                digital_output_cmd = RobotCommand.Request.DIGITAL_OFF,
-                digital_output_pin = hitpin
             )
             res = self.call_hiwin(req)
 

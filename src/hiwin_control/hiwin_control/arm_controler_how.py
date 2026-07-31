@@ -436,16 +436,24 @@ class Hiwin_Controller(Node):
                     temp_ball_pose_mm = pixel_mm_convert(CAM_TO_TABLE, target)
                     temp_actual_pose = convert_arm_pose(temp_ball_pose_mm, FIX_ABS_CAM)
                     self.ball_pose.append(temp_actual_pose[0:2])
-                nest_state = States.DYNAMIC_CALI if USE_DYNAMIC_CALI else States.OPEN_SEC_IO
+                nest_state = States.DYNAMIC_CALI if USE_DYNAMIC_CALI else States.STRATEGY
 
             else:
-                print("Fuck Cue ball")
-                for target in self.target_cue:
-                    print("target:", target)
-                    temp_ball_pose_mm = pixel_mm_convert(CAM_TO_TABLE, target)
-                    temp_actual_pose = convert_arm_pose(temp_ball_pose_mm, FIX_ABS_CAM)
-                    self.ball_pose.append(temp_actual_pose[0:2])
-                nest_state = States.FIX_RIGHT_PHOTO_POSE
+                # Cue ball missing from the first photo. Do NOT fall back to the
+                # side-photo path: STRATEGY converts self.ball_pose_buffer with
+                # FIX_ABS_CAM, so side-photo pixels would displace every ball by
+                # ~150mm. Go home and wait for the operator instead.
+                self.get_logger().warning(
+                    'CUE BALL NOT DETECTED - returning to prepare pose. '
+                    'Clear the obstruction and press the button to retry.'
+                )
+                req = self.generate_robot_request(
+                    cmd_mode = RobotCommand.Request.DIGITAL_OUTPUT,
+                    digital_output_cmd = RobotCommand.Request.DIGITAL_OFF,
+                    digital_output_pin = LIGHT_PIN
+                )
+                self.call_hiwin(req)
+                nest_state = States.INIT
 
         elif state == States.STEP_CALI:
             req = self.generate_robot_request(
@@ -491,7 +499,7 @@ class Hiwin_Controller(Node):
                 if res.arm_state == RobotCommand.Response.IDLE and self.index < len(self.target_cue):
                     nest_state = States.STEP_CALI
                 else:
-                    nest_state = States.OPEN_SEC_IO
+                    nest_state = States.STRATEGY
 
 
         elif state == States.DYNAMIC_CALI:
@@ -566,7 +574,7 @@ class Hiwin_Controller(Node):
                 if res.arm_state == RobotCommand.Response.IDLE and self.index < len(self.target_cue):
                     nest_state = States.DYNAMIC_CALI
                 else:
-                    nest_state = States.OPEN_SEC_IO
+                    nest_state = States.STRATEGY
 
         elif state == States.OPEN_SEC_IO:
             self.get_logger().info('Opening second IO\n')

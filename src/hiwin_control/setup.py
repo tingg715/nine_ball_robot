@@ -35,6 +35,7 @@ setup(
             'yyy_arm_controller = hiwin_control.yyy_arm_controller:main',
             'stream_rs = hiwin_control.stream_rs:main',
             'aruco_table_cali_v2 = hiwin_control.aruco_table_cali_v2:main',
+            'table_cali_from_balls = hiwin_control.table_cali_from_balls:main',
             'my_pool = hiwin_control.my_pool_1:main',
             'billiards_planner = hiwin_control.billiards_planner_ui:main',
             'test_camera_mm = hiwin_control.test_camera_mm:main',

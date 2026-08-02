@@ -193,6 +193,34 @@ class BallCoordinateChecker(Node):
             output_message
         )
 
+        # 發布的同時，把同一批座標印在終端
+        self.print_ball_coordinates(converted_balls)
+
+    # ========================================================
+    # 終端輸出
+    #
+    # 與 /ball_coordinate 發布的內容完全相同，
+    # 每收到一筆座標就印一次。
+    # ========================================================
+    def print_ball_coordinates(
+        self,
+        converted_balls: List[dict],
+    ) -> None:
+
+        lines = [
+            f'--- ball coordinate ({len(converted_balls)} balls) ---',
+            f'{"label":>8} {"base_x":>12} {"base_y":>12}',
+        ]
+
+        for ball in converted_balls:
+            lines.append(
+                f'{ball["label"]:>8} '
+                f'{ball["x"]:>12.3f} '
+                f'{ball["y"]:>12.3f}'
+            )
+
+        self.get_logger().info('\n'.join(lines))
+
     # ========================================================
     # Pixel -> Base Homography + Y 補償
     # ========================================================

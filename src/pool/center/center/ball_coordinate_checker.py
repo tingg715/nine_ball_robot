@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import ast
@@ -34,16 +33,42 @@ PIXEL_TO_BASE_H = np.array([
 
 
 # ============================================================
-# Y 軸殘差補償
+# Y 軸二次補償
+#
+# 先將像素座標正規化：
+#
+# U = (pixel_u - 960) / 960
+# V = (pixel_v - 540) / 540
+#
+# Y 補償：
 #
 # delta_y =
 #     C0
-#     + CU * pixel_u
-#     + CV * pixel_v
+#     + CU  * U
+#     + CV  * V
+#     + CUU * U^2
+#     + CUV * U*V
+#     + CVV * V^2
+#
+# 最終：
+#
+# final_x = raw_homography_x
+# final_y = raw_homography_y + delta_y
 # ============================================================
-Y_CORRECTION_C0 = 4.17110130
-Y_CORRECTION_U = -0.00271929316
-Y_CORRECTION_V = 0.00578073253
+
+PIXEL_CENTER_U = 960.0
+PIXEL_CENTER_V = 540.0
+
+PIXEL_SCALE_U = 960.0
+PIXEL_SCALE_V = 540.0
+
+
+Y_QUADRATIC_C0 = 2.1609174167
+Y_QUADRATIC_U = -1.0376556200
+Y_QUADRATIC_V = 1.8120073500
+Y_QUADRATIC_UU = 0.8814067500
+Y_QUADRATIC_UV = 2.7975178900
+Y_QUADRATIC_VV = -2.4531395200
 
 
 class BallCoordinateChecker(Node):
@@ -70,7 +95,7 @@ class BallCoordinateChecker(Node):
             10,
         )
 
-        # 發布所有球的 Base X、Y 座標
+        # 發布所有球的最終 Base X、Y 座標
         self.ball_coordinate_publisher = self.create_publisher(
             String,
             'ball_coordinate',
@@ -78,24 +103,49 @@ class BallCoordinateChecker(Node):
         )
 
         self.get_logger().info(
-            'Ball coordinate publisher started.'
+            'Ball coordinate checker started.'
         )
 
         self.get_logger().info(
-            'Publishing Base coordinates to /ball_coordinate'
+            'Subscribe: /center_data_labels'
+        )
+
+        self.get_logger().info(
+            'Subscribe: /center_data_coords'
+        )
+
+        self.get_logger().info(
+            'Publish: /ball_coordinate'
+        )
+
+        self.get_logger().info(
+            'X correction: disabled.'
+        )
+
+        self.get_logger().info(
+            'Single quadratic Y correction: enabled.'
         )
 
     # ========================================================
-    # 接收標籤
+    # 接收球標籤
     #
     # 預期格式：
     # "['1', '2', '8', 'white']"
     # ========================================================
-    def label_callback(self, msg: String) -> None:
-        try:
-            parsed_labels = ast.literal_eval(msg.data)
+    def label_callback(
+        self,
+        msg: String,
+    ) -> None:
 
-            if not isinstance(parsed_labels, (list, tuple)):
+        try:
+            parsed_labels = ast.literal_eval(
+                msg.data
+            )
+
+            if not isinstance(
+                parsed_labels,
+                (list, tuple),
+            ):
                 self.get_logger().warning(
                     'center_data_labels is not a list or tuple.'
                 )
@@ -106,13 +156,17 @@ class BallCoordinateChecker(Node):
                 for label in parsed_labels
             ]
 
-        except (ValueError, SyntaxError) as error:
+        except (
+            ValueError,
+            SyntaxError,
+        ) as error:
+
             self.get_logger().warning(
                 f'Unable to parse center_data_labels: {error}'
             )
 
     # ========================================================
-    # 接收像素座標並轉換
+    # 接收像素座標並轉換成 Base 座標
     #
     # 預期格式：
     # [u1, v1, u2, v2, ...]
@@ -127,6 +181,7 @@ class BallCoordinateChecker(Node):
         if not coordinates:
             return
 
+        # 每一顆球必須包含 u、v 兩個數值
         if len(coordinates) % 2 != 0:
             self.get_logger().error(
                 'Coordinate number must be even. '
@@ -134,6 +189,13 @@ class BallCoordinateChecker(Node):
             )
             return
 
+        # 將資料整理成：
+        #
+        # [
+        #   [u1, v1],
+        #   [u2, v2],
+        #   ...
+        # ]
         ball_pixels = np.asarray(
             coordinates,
             dtype=np.float64,
@@ -141,7 +203,7 @@ class BallCoordinateChecker(Node):
 
         ball_count = len(ball_pixels)
 
-        # 標籤和座標數量必須相同
+        # 標籤數量與球座標數量必須一致
         if len(self.labels) != ball_count:
             self.get_logger().warning(
                 'Labels and coordinates count do not match: '
@@ -152,6 +214,13 @@ class BallCoordinateChecker(Node):
 
         converted_balls = []
 
+        self.get_logger().info(
+            '\n'
+            '========================================\n'
+            f'Detected balls: {ball_count}\n'
+            '========================================'
+        )
+
         for index, pixel in enumerate(ball_pixels):
 
             label = self.labels[index]
@@ -160,7 +229,15 @@ class BallCoordinateChecker(Node):
             pixel_v = float(pixel[1])
 
             try:
-                base_x, base_y = self.pixel_to_base(
+                (
+                    final_base_x,
+                    final_base_y,
+                    raw_base_x,
+                    raw_base_y,
+                    y_correction,
+                    normalized_u,
+                    normalized_v,
+                ) = self.pixel_to_base(
                     pixel_u,
                     pixel_v,
                 )
@@ -171,14 +248,43 @@ class BallCoordinateChecker(Node):
                 )
                 continue
 
-            # 每顆球只發布 label、x、y
-            converted_balls.append({
+            # 發布的資料只保留 label、x、y
+            #
+            # 這裡的 x：
+            # 原始 Homography X
+            #
+            # 這裡的 y：
+            # 原始 Homography Y + 二次 Y 補償
+            ball_data = {
                 'label': label,
-                'x': round(base_x, 3),
-                'y': round(base_y, 3),
-            })
+                'x': round(final_base_x, 3),
+                'y': round(final_base_y, 3),
+            }
 
-        # 如果沒有成功轉換任何球，就不發布
+            converted_balls.append(
+                ball_data
+            )
+
+            # 終端顯示每顆球的完整轉換資訊
+            self.get_logger().info(
+                '\n'
+                f'Ball {index + 1}: {label}\n'
+                f'  pixel (u, v) = '
+                f'({pixel_u:.2f}, {pixel_v:.2f})\n'
+                f'  normalized (U, V) = '
+                f'({normalized_u:.6f}, '
+                f'{normalized_v:.6f})\n'
+                f'  raw Homography (x, y) mm = '
+                f'({raw_base_x:.3f}, '
+                f'{raw_base_y:.3f})\n'
+                f'  Y correction mm = '
+                f'{y_correction:+.3f}\n'
+                f'  final base (x, y) mm = '
+                f'({final_base_x:.3f}, '
+                f'{final_base_y:.3f})'
+            )
+
+        # 沒有成功轉換任何球時，不發布
         if not converted_balls:
             return
 
@@ -194,13 +300,21 @@ class BallCoordinateChecker(Node):
         )
 
     # ========================================================
-    # Pixel -> Base Homography + Y 補償
+    # Pixel -> Base Homography + 單一二次 Y 補償
     # ========================================================
     @staticmethod
     def pixel_to_base(
         pixel_u: float,
         pixel_v: float,
-    ) -> Tuple[float, float]:
+    ) -> Tuple[
+        float,
+        float,
+        float,
+        float,
+        float,
+        float,
+        float,
+    ]:
 
         pixel_point = np.array(
             [
@@ -212,7 +326,8 @@ class BallCoordinateChecker(Node):
         )
 
         transformed_point = (
-            PIXEL_TO_BASE_H @ pixel_point
+            PIXEL_TO_BASE_H
+            @ pixel_point
         )
 
         denominator = float(
@@ -224,26 +339,77 @@ class BallCoordinateChecker(Node):
                 'Homography denominator is too close to zero.'
             )
 
-        base_x = (
+        # ----------------------------------------------------
+        # 原始 Homography X
+        # ----------------------------------------------------
+        raw_base_x = (
             float(transformed_point[0])
             / denominator
         )
 
+        # ----------------------------------------------------
+        # 原始 Homography Y
+        # ----------------------------------------------------
         raw_base_y = (
             float(transformed_point[1])
             / denominator
         )
 
-        # Y 軸殘差補償
+        # ----------------------------------------------------
+        # 正規化像素座標
+        # ----------------------------------------------------
+        normalized_u = (
+            pixel_u
+            - PIXEL_CENTER_U
+        ) / PIXEL_SCALE_U
+
+        normalized_v = (
+            pixel_v
+            - PIXEL_CENTER_V
+        ) / PIXEL_SCALE_V
+
+        # ----------------------------------------------------
+        # 單一二次 Y 補償
+        # ----------------------------------------------------
         y_correction = (
-            Y_CORRECTION_C0
-            + Y_CORRECTION_U * pixel_u
-            + Y_CORRECTION_V * pixel_v
+            Y_QUADRATIC_C0
+            + Y_QUADRATIC_U
+            * normalized_u
+            + Y_QUADRATIC_V
+            * normalized_v
+            + Y_QUADRATIC_UU
+            * normalized_u
+            * normalized_u
+            + Y_QUADRATIC_UV
+            * normalized_u
+            * normalized_v
+            + Y_QUADRATIC_VV
+            * normalized_v
+            * normalized_v
         )
 
-        base_y = raw_base_y + y_correction
+        # ----------------------------------------------------
+        # X 不做額外補償
+        # ----------------------------------------------------
+        final_base_x = raw_base_x
 
-        return base_x, base_y
+        # ----------------------------------------------------
+        # Y 只加入這一套二次補償
+        # ----------------------------------------------------
+        final_base_y = (
+            raw_base_y
+            + y_correction
+        )
+
+        return (
+            final_base_x,
+            final_base_y,
+            raw_base_x,
+            raw_base_y,
+            y_correction,
+            normalized_u,
+            normalized_v,
+        )
 
 
 def main(
@@ -252,7 +418,9 @@ def main(
 
     rclpy.init(args=args)
 
-    node: Optional[BallCoordinateChecker] = None
+    node: Optional[
+        BallCoordinateChecker
+    ] = None
 
     try:
         node = BallCoordinateChecker()
@@ -271,4 +439,3 @@ def main(
 
 if __name__ == '__main__':
     main()
-

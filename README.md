@@ -39,6 +39,8 @@ ros2 run hiwin_control aruco_table_cali_v2
 ## Run Nine Ball Script
 ros2 launch azure_kinect_ros_driver driver.launch.py 
 
+ros2 launch hiwin_control wrist_cam.launch.py
+
 ros2 run yolov7_obj_detect camera 
 
 ros2 run yolov7_obj_detect object_detection 
